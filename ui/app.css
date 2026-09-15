@@ -493,6 +493,25 @@ html.logged-out #view-login {
   border-color: var(--primary-maroon);
 }
 
+/* Mobile-only hamburger button & sidebar drawer backdrop (hidden on desktop) */
+.mobile-menu-btn {
+  display: none;
+  width: 38px;
+  height: 38px;
+  flex-shrink: 0;
+  border-radius: var(--radius-pill);
+  background: var(--input-bg);
+  border: 1px solid var(--input-border);
+  color: var(--primary-maroon);
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.sidebar-backdrop {
+  display: none;
+}
+
 /* ==========================================================================
    SCROLLABLE WORKSPACE BODY
    ========================================================================== */
@@ -2664,4 +2683,154 @@ html.logged-out #view-login {
   color: var(--text-muted);
   line-height: 1.4;
   margin-top: 4px;
+}
+
+/* ==========================================================================
+   PHONE / SMALL-SCREEN RESPONSIVE LAYOUT
+   ========================================================================== */
+
+@media (max-width: 768px) {
+  /* Sidebar becomes an off-canvas drawer instead of eating the whole screen */
+  .app-sidebar {
+    position: fixed;
+    top: 0;
+    left: 0;
+    height: 100vh;
+    z-index: 300;
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+    box-shadow: 10px 0 32px rgba(0, 0, 0, 0.35);
+  }
+
+  body.mobile-sidebar-open .app-sidebar {
+    transform: translateX(0);
+  }
+
+  .sidebar-backdrop {
+    display: block;
+    position: fixed;
+    inset: 0;
+    background: rgba(20, 4, 7, 0.55);
+    z-index: 290;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s ease;
+  }
+
+  body.mobile-sidebar-open .sidebar-backdrop {
+    opacity: 1;
+    pointer-events: auto;
+  }
+
+  .mobile-menu-btn {
+    display: flex;
+  }
+
+  /* Topbar: tighter padding, let search flex, hide secondary telemetry */
+  .top-clinical-bar {
+    padding: 0 12px;
+    gap: 10px;
+  }
+
+  .topbar-search-wrap {
+    width: auto;
+    max-width: none;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .telemetry-chip {
+    display: none;
+  }
+
+  .active-patient-chip .chip-label,
+  .active-patient-chip .chip-mrn {
+    display: none;
+  }
+
+  .topbar-right-deck {
+    gap: 8px;
+  }
+
+  .workspace-body {
+    padding: 16px 14px 28px;
+  }
+
+  /* View headers stack instead of squeezing side by side */
+  .desktop-view-header {
+    flex-direction: column;
+    align-items: stretch;
+    gap: 12px;
+  }
+
+  .header-action-group {
+    flex-wrap: wrap;
+  }
+
+  /* Dashboard */
+  .dashboard-banner {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 16px;
+  }
+
+  .categories-grid-desktop {
+    grid-template-columns: 1fr;
+  }
+
+  /* Patient Intake */
+  .intake-desktop-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .form-row-2col {
+    grid-template-columns: 1fr;
+  }
+
+  .eye-protocol-row {
+    grid-template-columns: 1fr;
+  }
+
+  /* NPC / NPA Stepper Rail */
+  .dot-desktop-stage-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .stepper-options-group {
+    flex-wrap: wrap;
+    gap: 12px;
+  }
+
+  /* Near VA / Jaeger's Chart exam layout */
+  .exam-desktop-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .optotype-stimulus-card,
+  .exam-keypad-card {
+    padding: 20px;
+  }
+
+  .optotype-display-box {
+    min-height: 260px;
+  }
+
+  .jaeger-level-row {
+    grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  }
+
+  /* Test Catalog */
+  .products-catalog-grid {
+    grid-template-columns: 1fr;
+  }
+
+  /* Auth / Login */
+  .auth-form-pane {
+    padding: 30px 22px;
+  }
+
+  /* Modals */
+  .modal-card {
+    padding: 20px;
+  }
 }

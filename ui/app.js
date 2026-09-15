@@ -145,6 +145,8 @@ class AccuVisApp {
       viewName = 'login';
     }
 
+    this.closeMobileSidebar();
+
     document.querySelectorAll('.app-view').forEach(v => v.classList.remove('active'));
     const target = document.getElementById(`view-${viewName}`);
     if (target) {
@@ -1053,6 +1055,14 @@ class AccuVisApp {
   closeModals(event) {
     if (event && event.target !== event.currentTarget) return;
     document.querySelectorAll('.modal-backdrop').forEach(m => m.classList.add('hidden'));
+  }
+
+  toggleMobileSidebar() {
+    document.body.classList.toggle('mobile-sidebar-open');
+  }
+
+  closeMobileSidebar() {
+    document.body.classList.remove('mobile-sidebar-open');
   }
 
   showNotification(title, message) {

@@ -24,7 +24,10 @@
        DESKTOP WORKSTATION APP LAYOUT
        ========================================================================= -->
   <div class="app-layout">
-    
+
+    <!-- Mobile-only backdrop, shown while the sidebar drawer is open -->
+    <div class="sidebar-backdrop" id="sidebar-backdrop" onclick="app.closeMobileSidebar()"></div>
+
     <!-- =======================================================================
          LEFT CLINICAL SIDEBAR (DEEP MAROON #4A0E17)
          ======================================================================= -->
@@ -141,6 +144,11 @@
       
       <!-- TOP CLINICAL BAR -->
       <header class="top-clinical-bar" id="app-main-header">
+        <!-- Mobile-only hamburger to open the sidebar drawer -->
+        <button class="mobile-menu-btn" onclick="app.toggleMobileSidebar()" title="Open Menu" aria-label="Open Menu">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+        </button>
+
         <!-- Global Pill Search Bar (Matching Mockup Style) -->
         <div class="topbar-search-wrap">
           <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
@@ -990,7 +998,7 @@
             <!-- Left Panel: Plate Canvas -->
             <div class="optotype-stimulus-card">
               <div class="optotype-display-box">
-                <canvas id="color-vision-canvas" width="320" height="320" style="border-radius:50%;"></canvas>
+                <canvas id="color-vision-canvas" width="320" height="320" style="border-radius:50%; max-width:100%; height:auto;"></canvas>
                 <div class="optotype-meta-footer">
                   <span>Plate <strong id="cv-plate-num">1</strong> of <strong id="cv-plate-total">5</strong></span>
                 </div>
