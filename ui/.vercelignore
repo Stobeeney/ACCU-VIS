@@ -1,0 +1,6 @@
+android-compose/
+database/__pycache__/
+database/accuvis_clinic.db
+database/patients.json
+database/clinic_records.json
+database/users.json

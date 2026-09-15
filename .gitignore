@@ -1,0 +1,19 @@
+# Claude Code local tooling (not project content)
+.agents/
+
+# Python
+__pycache__/
+*.pyc
+
+# Local SQLite database & JSON mirrors (production uses Postgres via Vercel)
+ui/database/accuvis_clinic.db
+ui/database/patients.json
+ui/database/clinic_records.json
+ui/database/users.json
+
+# Vercel local project link
+.vercel/
+ui/.vercel/
+
+# OS cruft
+.DS_Store

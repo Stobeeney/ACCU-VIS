@@ -1,0 +1,13 @@
+{
+  "name": "accuvis-ui",
+  "version": "1.0.0",
+  "description": "Accu-Vis Operator-Assisted Clinical Visual Acuity & Eye Tracking UI",
+  "main": "index.html",
+  "scripts": {
+    "start": "python3 server.py --open",
+    "serve": "python3 server.py"
+  },
+  "keywords": ["vision-test", "optometry", "eye-tracking", "mediapipe", "operator-assisted"],
+  "author": "Accu-Vis Clinical Systems",
+  "license": "MIT"
+}

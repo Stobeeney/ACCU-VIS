@@ -1,0 +1,1321 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Accu-Vis | Modern Clinical Vision Assessment Workstation</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=JetBrains+Mono:wght@500;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="app.css">
+  <script>
+    // Apply logged-out state before first paint to avoid flashing the clinical UI
+    (function () {
+      try {
+        if (!localStorage.getItem('accuvis_user')) {
+          document.documentElement.classList.add('logged-out');
+        }
+      } catch (e) {}
+    })();
+  </script>
+</head>
+<body>
+  <!-- =========================================================================
+       DESKTOP WORKSTATION APP LAYOUT
+       ========================================================================= -->
+  <div class="app-layout">
+    
+    <!-- =======================================================================
+         LEFT CLINICAL SIDEBAR (DEEP MAROON #4A0E17)
+         ======================================================================= -->
+    <aside class="app-sidebar" id="app-sidebar">
+      <!-- Brand Logo Header -->
+      <div class="sidebar-brand" onclick="app.switchView('dashboard')" title="Accu-Vis Clinical Workstation">
+        <img src="images/accuvis_logo.jpg" alt="Accu-Vis Logo" class="sidebar-brand-logo">
+        <div class="sidebar-brand-text">
+          <span class="sidebar-brand-title">ACCU-VIS</span>
+          <span class="sidebar-brand-sub">Clinical Workstation</span>
+        </div>
+      </div>
+
+      <!-- Main Navigation Menu -->
+      <nav class="sidebar-nav" id="sidebar-nav">
+        <!-- 1: Dashboard -->
+        <button class="nav-item active" id="nav-dashboard" onclick="app.switchView('dashboard')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M3 9l9-7 9 7v11a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/>
+            <polyline points="9 22 9 12 15 12 15 22"/>
+          </svg>
+          <span class="nav-label">Dashboard</span>
+        </button>
+
+        <!-- 2: Patient Intake -->
+        <button class="nav-item" id="nav-intake" onclick="app.switchView('intake')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+            <circle cx="9" cy="7" r="4"/>
+            <line x1="19" y1="8" x2="19" y2="14"/>
+            <line x1="22" y1="11" x2="16" y2="11"/>
+          </svg>
+          <span class="nav-label">Patient Intake</span>
+        </button>
+
+        <!-- 3: Products & Test Catalog -->
+        <button class="nav-item" id="nav-products" onclick="app.switchView('products')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <rect x="2" y="3" width="20" height="14" rx="2" ry="2"/>
+            <line x1="8" y1="21" x2="16" y2="21"/>
+            <line x1="12" y1="17" x2="12" y2="21"/>
+          </svg>
+          <span class="nav-label">Test Catalog</span>
+        </button>
+
+        <!-- 4: NPC Stepper Dot Test -->
+        <button class="nav-item" id="nav-dot-measure" onclick="app.launchDotMeasure('npc')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="10"/>
+            <circle cx="12" cy="12" r="6"/>
+            <circle cx="12" cy="12" r="2"/>
+          </svg>
+          <span class="nav-label">NPC Stepper Rail</span>
+        </button>
+
+        <!-- 5: Near Visual Acuity Exam -->
+        <button class="nav-item" id="nav-exam" onclick="app.switchView('exam')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/>
+            <circle cx="12" cy="12" r="3"/>
+          </svg>
+          <span class="nav-label">Near Visual Acuity</span>
+        </button>
+
+        <!-- 6: Clinic Database Records -->
+        <button class="nav-item" id="nav-records" onclick="app.switchView('records')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+            <polyline points="14 2 14 8 20 8"/>
+            <line x1="16" y1="13" x2="8" y2="13"/>
+            <line x1="16" y1="17" x2="8" y2="17"/>
+          </svg>
+          <span class="nav-label">Database Records</span>
+        </button>
+
+        <!-- 7: Doctor Login / Portal -->
+        <button class="nav-item" id="nav-login" onclick="app.switchView('login')">
+          <svg class="nav-icon" width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <path d="M15 3h4a2 2 0 0 1 2 2v14a2 2 0 0 1-2 2h-4"/>
+            <polyline points="10 17 15 12 10 7"/>
+            <line x1="15" y1="12" x2="3" y2="12"/>
+          </svg>
+          <span class="nav-label" id="nav-label-login">Doctor Login</span>
+        </button>
+      </nav>
+
+      <!-- Sidebar Footer: Doctor Bea Profile & Database Status -->
+      <div class="sidebar-footer">
+        <div class="doctor-profile-badge" id="sidebar-doctor-profile">
+          <div class="doctor-avatar-img doctor-avatar-fallback" id="sidebar-doctor-avatar">DR</div>
+          <div class="doctor-meta-col">
+            <span class="welcome-sub-label" id="sidebar-doctor-role">Optometrist</span>
+            <strong class="doctor-name-title" id="sidebar-doctor-name">Dr. Bea</strong>
+          </div>
+          <button class="btn-logout-mini" onclick="app.openEditProfileModal();" title="Edit Profile">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M12 20h9"/><path d="M16.5 3.5a2.12 2.12 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>
+          </button>
+          <button class="btn-logout-mini" onclick="app.logout();" title="Log Out / Switch Account">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+          </button>
+        </div>
+
+        <div class="sidebar-db-status">
+          <span class="status-pulse-dot"></span>
+          <span class="db-status-text">SQLite Connected</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- =======================================================================
+         MAIN WORKSTATION CANVAS (TOPBAR + SCROLLABLE WORKSPACE)
+         ======================================================================= -->
+    <div class="app-workspace">
+      
+      <!-- TOP CLINICAL BAR -->
+      <header class="top-clinical-bar" id="app-main-header">
+        <!-- Global Pill Search Bar (Matching Mockup Style) -->
+        <div class="topbar-search-wrap">
+          <svg class="search-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <circle cx="11" cy="11" r="8"/>
+            <line x1="21" y1="21" x2="16.65" y2="16.65"/>
+          </svg>
+          <input type="text" id="global-patient-search" placeholder="Search patient by name or MRN..." oninput="app.filterPatients(this.value)">
+        </div>
+
+        <!-- Active Patient Chip & Telemetry -->
+        <div class="topbar-right-deck">
+          <!-- Active Patient Indicator -->
+          <div class="active-patient-chip" onclick="app.switchView('intake')" title="Click to view loaded patient profile">
+            <span class="chip-dot"></span>
+            <span class="chip-label">Active:</span>
+            <strong class="chip-name" id="topbar-patient-name">No Active Patient</strong>
+            <span class="chip-mrn" id="topbar-patient-mrn">&mdash;</span>
+          </div>
+
+          <!-- Hardware Status Chips -->
+          <div class="telemetry-chip" title="40cm Linear Carriage Position">
+            <span class="telemetry-label">Rail:</span>
+            <strong class="telemetry-val" id="topbar-rail-val">40.0cm</strong>
+          </div>
+
+          <div class="telemetry-chip" title="Eye Tracking Camera Feed">
+            <span class="telemetry-badge-green">Cam Active</span>
+          </div>
+
+          <!-- Utility Icons -->
+          <button class="topbar-btn" onclick="app.switchView('splash')" title="View Welcome Screen">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+          </button>
+          <button class="topbar-btn" onclick="app.openSettingsModal()" title="System Settings">
+            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+          </button>
+        </div>
+      </header>
+
+      <!-- SCROLLABLE WORKSPACE VIEWS CONTAINER -->
+      <main class="workspace-body">
+        
+        <!-- ===================================================================
+             VIEW 0: CLINICAL LOGIN & AUTHENTICATION (MATCHING IMAGES 1, 3, 4)
+             =================================================================== -->
+        <section id="view-login" class="app-view">
+          <div class="auth-page-container">
+            <div class="auth-split-card">
+              <!-- Left Brand Hero (Deep Maroon #4A0E17) -->
+              <div class="auth-hero-pane">
+                <div class="auth-hero-top">
+                  <div class="auth-hero-logo-box">
+                    <img src="images/accuvis_logo.jpg" alt="Accu-Vis Logo" class="auth-logo-img">
+                  </div>
+                  <h1 class="auth-hero-title">ACCU-VIS</h1>
+                  <span class="auth-hero-subtitle">Clinical Workstation Portal</span>
+                  
+                  <p class="auth-hero-desc">
+                    Smart solution for easy &amp; reliable vision assessment, automated 40cm linear rail convergence, and synchronized clinical logs.
+                  </p>
+                </div>
+              </div>
+
+              <!-- Right Auth Form Card -->
+              <div class="auth-form-pane">
+                
+                <!-- TAB 1: SIGN IN (MATCHING IMAGE 1) -->
+                <div id="auth-tab-login" class="auth-tab-content active">
+                  <div class="auth-header-row">
+                    <h2 class="auth-title">Clinical Sign In</h2>
+                    <span class="auth-sub">Enter your credentials to access the workstation</span>
+                  </div>
+
+                  <form id="form-login" onsubmit="app.handleLoginSubmit(event)">
+                    <!-- Email or Username Pill -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                          <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                        <input type="text" id="login-identifier" class="auth-pill-input" placeholder="Email or Username" value="" required>
+                      </div>
+                    </div>
+
+                    <!-- Password Pill -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <input type="password" id="login-password" class="auth-pill-input" placeholder="Password" value="" required>
+                        <button type="button" class="btn-toggle-pwd" onclick="app.togglePasswordVisibility('login-password')">
+                          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+                        </button>
+                      </div>
+                    </div>
+
+                    <!-- Remember Me & Forgot Password Row -->
+                    <div class="auth-meta-row">
+                      <label class="auth-checkbox-label">
+                        <input type="checkbox" id="chk-remember-login" checked>
+                        <span>Remember Me</span>
+                      </label>
+                      <a class="auth-link" onclick="app.showAuthTab('forgot')">Forgot Password?</a>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="btn-maroon-pill-large" style="width:100%; margin-top:10px;">
+                      <span>Login &rarr;</span>
+                    </button>
+
+                    <!-- Switch to Register -->
+                    <div class="auth-switch-footer">
+                      <span>Don't have an account?</span>
+                      <a class="auth-link-bold" onclick="app.showAuthTab('register')">Create an account</a>
+                    </div>
+                  </form>
+                </div>
+
+                <!-- TAB 2: CREATE YOUR ACCOUNT (MATCHING IMAGE 4) -->
+                <div id="auth-tab-register" class="auth-tab-content">
+                  <div class="auth-header-row">
+                    <h2 class="auth-title">Create Your Account</h2>
+                    <span class="auth-sub">Register a new clinical specialist account in the database</span>
+                  </div>
+
+                  <form id="form-register" onsubmit="app.handleRegisterSubmit(event)">
+                    <!-- Email -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                          <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <input type="email" id="reg-email" class="auth-pill-input" placeholder="Clinical Email Address" required>
+                      </div>
+                    </div>
+
+                    <!-- Full Name -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                          <circle cx="12" cy="7" r="4"/>
+                        </svg>
+                        <input type="text" id="reg-fullname" class="auth-pill-input" placeholder="Full Name (e.g. Dr. Maria Clara)" required>
+                      </div>
+                    </div>
+
+                    <!-- Username -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <circle cx="12" cy="12" r="4"/>
+                          <path d="M16 8v5a3 3 0 0 0 6 0v-1a10 10 0 1 0-3.92 7.94"/>
+                        </svg>
+                        <input type="text" id="reg-username" class="auth-pill-input" placeholder="Username (min. 3 characters)" required>
+                      </div>
+                    </div>
+
+                    <!-- Password -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <input type="password" id="reg-password" class="auth-pill-input" placeholder="Password (min. 4 characters)" required>
+                      </div>
+                    </div>
+
+                    <!-- Repeat Password -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <input type="password" id="reg-repeat-password" class="auth-pill-input" placeholder="Repeat Password" required>
+                      </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="btn-maroon-pill-large" style="width:100%; margin-top:8px;">
+                      <span>Create Account &amp; Save to Database &rarr;</span>
+                    </button>
+
+                    <!-- Switch to Login -->
+                    <div class="auth-switch-footer">
+                      <span>Already have an account?</span>
+                      <a class="auth-link-bold" onclick="app.showAuthTab('login')">Return to Login</a>
+                    </div>
+                  </form>
+                </div>
+
+                <!-- TAB 3: FORGOT PASSWORD (MATCHING IMAGE 3) -->
+                <div id="auth-tab-forgot" class="auth-tab-content">
+                  <div class="auth-shield-wrap">
+                    <div class="auth-shield-icon">
+                      <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/>
+                        <rect x="9" y="11" width="6" height="5" rx="1"/>
+                        <path d="M10 11V9a2 2 0 0 1 4 0v2"/>
+                      </svg>
+                    </div>
+                    <h2 class="auth-title">Trouble Logging in?</h2>
+                    <p class="auth-sub-desc">
+                      Enter your clinical email address and enter a new password to reset your database credentials.
+                    </p>
+                  </div>
+
+                  <form id="form-forgot" onsubmit="app.handleForgotSubmit(event)">
+                    <!-- Email -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/>
+                          <polyline points="22,6 12,13 2,6"/>
+                        </svg>
+                        <input type="email" id="forgot-email" class="auth-pill-input" placeholder="Enter your email" required>
+                      </div>
+                    </div>
+
+                    <!-- New Password -->
+                    <div class="auth-pill-group">
+                      <div class="auth-input-wrap">
+                        <svg class="auth-field-icon" width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                          <rect x="3" y="11" width="18" height="11" rx="2" ry="2"/>
+                          <path d="M7 11V7a5 5 0 0 1 10 0v4"/>
+                        </svg>
+                        <input type="password" id="forgot-new-password" class="auth-pill-input" placeholder="New Password (min 4 characters)" required>
+                      </div>
+                    </div>
+
+                    <!-- Submit Button -->
+                    <button type="submit" class="btn-maroon-pill-large" style="width:100%; margin-top:8px;">
+                      <span>Reset Password</span>
+                    </button>
+
+                    <!-- Return to Login -->
+                    <div class="auth-switch-footer">
+                      <a class="auth-link-bold" onclick="app.showAuthTab('login')">&larr; Return to Login Page</a>
+                    </div>
+                  </form>
+                </div>
+
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 1: DASHBOARD / CLINICAL OVERVIEW (MATCHING IMAGE 5 & 7 STYLE)
+             =================================================================== -->
+        <section id="view-dashboard" class="app-view active">
+          <!-- Top Welcome Banner -->
+          <div class="dashboard-banner">
+            <div class="banner-text-col">
+              <span class="banner-welcome-badge">Optometry Clinical Suite</span>
+              <h1 class="banner-greeting-title">Welcome back, Dr. Bea</h1>
+              <p class="banner-subtext">Automated near vision assessment &amp; binocular convergence testing station.</p>
+            </div>
+            <div class="banner-action-col">
+              <button class="btn-banner-primary" onclick="app.switchView('intake')">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>New Patient Intake</span>
+              </button>
+            </div>
+          </div>
+
+          <!-- Quick Action Categories Grid (Matching Image 5) -->
+          <div class="dashboard-section-header">
+            <h2 class="section-title">Categories</h2>
+            <span class="section-hint">Select a clinical workflow to begin</span>
+          </div>
+
+          <div class="categories-grid-desktop">
+            <!-- Category 1: New Patient -->
+            <div class="category-card-desktop" onclick="app.switchView('intake')">
+              <div class="category-icon-desktop">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/>
+                  <circle cx="9" cy="7" r="4"/>
+                  <line x1="19" y1="8" x2="19" y2="14"/>
+                  <line x1="22" y1="11" x2="16" y2="11"/>
+                </svg>
+              </div>
+              <div class="category-content-desktop">
+                <h3 class="category-card-title">New Patient</h3>
+                <p class="category-card-desc">Register demographics, select target eye, and initiate examination.</p>
+              </div>
+              <span class="category-arrow-btn">&rarr;</span>
+            </div>
+
+            <!-- Category 2: Existing Patient -->
+            <div class="category-card-desktop" onclick="app.switchView('records')">
+              <div class="category-icon-desktop">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/>
+                  <circle cx="12" cy="7" r="4"/>
+                  <circle cx="18" cy="11" r="3" fill="none"/>
+                  <line x1="18" y1="9.5" x2="18" y2="12.5"/>
+                  <line x1="16.5" y1="11" x2="19.5" y2="11"/>
+                </svg>
+              </div>
+              <div class="category-content-desktop">
+                <h3 class="category-card-title">Existing Patient</h3>
+                <p class="category-card-desc">Review previous session logs, NPC measurements, and export records.</p>
+              </div>
+              <span class="category-arrow-btn">&rarr;</span>
+            </div>
+
+            <!-- Category 3: NPC Stepper Rail -->
+            <div class="category-card-desktop" onclick="app.launchDotMeasure('npc')">
+              <div class="category-icon-desktop">
+                <svg width="36" height="36" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                  <circle cx="12" cy="12" r="10"/>
+                  <circle cx="12" cy="12" r="6"/>
+                  <circle cx="12" cy="12" r="2"/>
+                </svg>
+              </div>
+              <div class="category-content-desktop">
+                <h3 class="category-card-title">NPC Stepper Rail</h3>
+                <p class="category-card-desc">Automated 40cm carriage approach with live stabilized eye tracking HUD.</p>
+              </div>
+              <span class="category-arrow-btn">&rarr;</span>
+            </div>
+          </div>
+
+          <!-- Desktop Workstation Grid: Test Modules -->
+          <div class="dashboard-split-grid">
+            <!-- Products & Test Charts (Matching Image 7) -->
+            <div class="dashboard-catalog-panel">
+              <div class="panel-heading-row">
+                <div>
+                  <h2 class="section-title">Products &amp; Test Charts</h2>
+                  <span class="section-hint">Standardized optical assessment modules</span>
+                </div>
+                <button class="panel-link-btn" onclick="app.switchView('products')">View All &rsaquo;</button>
+              </div>
+
+              <div class="products-grid-desktop">
+                <!-- 1: Near VA -->
+                <div class="product-tile-desktop" onclick="app.switchView('exam')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_near_va.jpg" alt="Near VA">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">Near VA</span>
+                    <span class="product-type-badge">Acuity</span>
+                  </div>
+                </div>
+
+                <!-- 2: NPC Carriage Target -->
+                <div class="product-tile-desktop" onclick="app.launchDotMeasure('npc')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_npc.jpg" alt="NPC Carriage">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">NPC Stepper</span>
+                    <span class="product-type-badge">Rail</span>
+                  </div>
+                </div>
+
+                <!-- 3: NPA Chart -->
+                <div class="product-tile-desktop" onclick="app.launchDotMeasure('npa')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_npa.jpg" alt="NPA Chart">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">NPA Test</span>
+                    <span class="product-type-badge">Accom.</span>
+                  </div>
+                </div>
+
+                <!-- 4: Color Vision -->
+                <div class="product-tile-desktop" onclick="app.switchView('color-vision')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_color_vis.jpg" alt="Color Vision">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">Color Vision</span>
+                    <span class="product-type-badge">Ishihara</span>
+                  </div>
+                </div>
+
+                <!-- 5: Jaeger's Chart -->
+                <div class="product-tile-desktop" onclick="app.switchView('jaeger')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_jaeger.jpg" alt="Jaeger's Chart">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">Jaeger's</span>
+                    <span class="product-type-badge">Chart</span>
+                  </div>
+                </div>
+
+                <!-- 6: Line Dot Fixture -->
+                <div class="product-tile-desktop" onclick="app.launchDotMeasure('npc')">
+                  <div class="product-thumb-container">
+                    <img src="images/thumb_line_dot.jpg" alt="Line Dot Carriage">
+                  </div>
+                  <div class="product-info-bar">
+                    <span class="product-tile-title">Line Dot</span>
+                    <span class="product-type-badge">Fixture</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 2: PATIENT INTAKE FORM (MATCHING IMAGE 6 STYLE)
+             =================================================================== -->
+        <section id="view-intake" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <h1 class="desktop-view-title">Patient Intake &amp; Registration</h1>
+              <span class="desktop-view-subtitle">Enter clinical demographics and select exam protocol</span>
+            </div>
+            <button class="btn-outline-maroon" onclick="app.switchView('dashboard')">
+              &larr; Back to Dashboard
+            </button>
+          </div>
+
+          <div class="intake-desktop-grid">
+            <!-- Left Card: Patient Profile Badge & Protocol Summary -->
+            <div class="intake-summary-card">
+              <div class="intake-avatar-wrap">
+                <div class="intake-avatar-circle">
+                  <svg width="56" height="56" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M12 2a5 5 0 1 0 5 5 5 5 0 0 0-5-5zm0 12c-5.33 0-8 2.67-8 4v2h16v-2c0-1.33-2.67-4-8-4z"/>
+                  </svg>
+                </div>
+                <h2 class="intake-patient-display-name" id="display-intake-name">New Patient</h2>
+                <span class="intake-patient-mrn-chip" id="display-intake-mrn">MRN: Pending</span>
+              </div>
+
+              <div class="intake-checklist-box">
+                <h4 class="checklist-title">Pre-Exam Calibration Checklist</h4>
+                <ul class="checklist-items">
+                  <li>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2D8A4E" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Chin rest height adjusted to eye level (120mm)</span>
+                  </li>
+                  <li>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2D8A4E" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Target fixation carriage set at 40.0cm home</span>
+                  </li>
+                  <li>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#2D8A4E" stroke-width="2.5"><polyline points="20 6 9 17 4 12"/></svg>
+                    <span>Eye tracker aligned with stabilized crop</span>
+                  </li>
+                </ul>
+              </div>
+
+            </div>
+
+            <!-- Right Card: Full Intake Form (Matching Image 6 Form Fields) -->
+            <div class="intake-form-card">
+              <form id="patient-intake-form" onsubmit="app.handleIntakeSubmit(event)">
+                <!-- Form Row: Name & Phone -->
+                <div class="form-row-2col">
+                  <div class="form-pill-group">
+                    <label class="form-pill-label" for="intake-name">Full Name</label>
+                    <input type="text" class="form-pill-input" id="intake-name" value="" placeholder="Enter patient name" required>
+                  </div>
+                  <div class="form-pill-group">
+                    <label class="form-pill-label" for="intake-phone">Phone Number</label>
+                    <input type="tel" class="form-pill-input" id="intake-phone" value="+123-456-7890" placeholder="+123-456-7890">
+                  </div>
+                </div>
+
+                <!-- Form Row: Address -->
+                <div class="form-pill-group">
+                  <label class="form-pill-label" for="intake-address">Address</label>
+                  <input type="text" class="form-pill-input" id="intake-address" value="123 Anywhere St., Any City, ST 12345" placeholder="Address">
+                </div>
+
+                <!-- Form Row: Gender & Age -->
+                <div class="form-row-2col">
+                  <div class="form-pill-group">
+                    <label class="form-pill-label" for="intake-gender">Gender</label>
+                    <div class="form-select-wrap">
+                      <select id="intake-gender">
+                        <option value="Male" selected>Male</option>
+                        <option value="Female">Female</option>
+                        <option value="Other">Other</option>
+                      </select>
+                      <span class="select-arrow-icon">&blacktriangledown;</span>
+                    </div>
+                  </div>
+
+                  <div class="form-pill-group">
+                    <label class="form-pill-label" for="intake-age-select">Age</label>
+                    <div class="form-select-wrap">
+                      <select id="intake-age-select">
+                        <option value="28" selected>28 Years</option>
+                        <option value="26">26 Years</option>
+                        <option value="35">35 Years</option>
+                        <option value="42">42 Years</option>
+                        <option value="Any Age">Any Age</option>
+                      </select>
+                      <span class="select-arrow-icon">&blacktriangledown;</span>
+                    </div>
+                  </div>
+                </div>
+
+                <!-- Hidden MRN & Notes for Database -->
+                <input type="hidden" id="intake-mrn" value="">
+                <input type="hidden" id="intake-notes" value="Optometric vision check">
+
+                <!-- Form Row: Birthdate -->
+                <div class="form-pill-group">
+                  <label class="form-pill-label" for="intake-birthdate">Birthdate</label>
+                  <div class="form-select-wrap">
+                    <select id="intake-birthdate">
+                      <option value="December 23, 2000" selected>December 23, 2000</option>
+                      <option value="June 19, 1991">June 19, 1991</option>
+                      <option value="May 12, 1998">May 12, 1998</option>
+                    </select>
+                    <span class="select-arrow-icon">&blacktriangledown;</span>
+                  </div>
+                </div>
+
+                <!-- Target Eye Protocol Selector -->
+                <div class="form-pill-group">
+                  <label class="form-pill-label">Examination Target Eye Protocol</label>
+                  <div class="eye-protocol-row">
+                    <button type="button" class="eye-protocol-pill active" id="intake-eye-od" onclick="app.setIntakeEye('OD')">OD (Right Eye)</button>
+                    <button type="button" class="eye-protocol-pill" id="intake-eye-os" onclick="app.setIntakeEye('OS')">OS (Left Eye)</button>
+                    <button type="button" class="eye-protocol-pill" id="intake-eye-ou" onclick="app.setIntakeEye('OU')">OU (Binocular Both)</button>
+                  </div>
+                </div>
+
+                <!-- Remember Checkbox -->
+                <label class="form-checkbox-row">
+                  <input type="checkbox" id="chk-remember-patient" checked>
+                  <span>Remember my patient and sync with local SQLite database</span>
+                </label>
+
+                <!-- Action Button -->
+                <div class="form-actions-desktop">
+                  <button type="submit" class="btn-maroon-pill-large">
+                    <span>Save Patient &amp; Launch NPC Stepper Test &rarr;</span>
+                  </button>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 3: AUTOMATED DOT DISTANCE & EYE TRACKER (MAROON & CREAM)
+             =================================================================== -->
+        <section id="view-dot-measure" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <div class="stage-tag-badge" id="dot-stage-tag-badge">Near Point of Convergence &bull; 40cm Stepper Rail</div>
+              <h1 class="desktop-view-title" id="dot-patient-tag">No Patient Selected</h1>
+            </div>
+            <div class="header-action-group">
+              <button class="btn-outline-maroon" onclick="app.switchView('dashboard')">&larr; Dashboard</button>
+              <button class="btn-maroon-pill" onclick="app.switchView('exam')">Visual Acuity Exam &rarr;</button>
+            </div>
+          </div>
+
+          <!-- Central Desktop Stage: Fixation Target Stage & Dual Eye Tracking HUD -->
+          <div class="dot-desktop-stage-grid">
+            
+            <!-- LEFT PANEL: FIXATION TARGET STAGE & DIGITAL READOUT -->
+            <div class="dot-target-stage-card">
+              <div class="stage-card-header">
+                <span class="stage-title">Fixation Target &bull; Carriage Stimulus</span>
+                <span class="stage-badge-maroon" id="dot-stage-protocol-badge">Active Protocol: NPC 40cm Approach</span>
+              </div>
+
+              <div class="target-canvas-stage-box" id="dot-target-container">
+                <!-- Reticle Crosshair Lines -->
+                <div class="dot-crosshair-lines">
+                  <div class="ch-line ch-h"></div>
+                  <div class="ch-line ch-v"></div>
+                </div>
+
+                <!-- Concentric Fixation Target (Rose/Maroon Design) -->
+                <div class="fixation-target-core">
+                  <div class="target-ring ring-3"></div>
+                  <div class="target-ring ring-2"></div>
+                  <div class="target-ring ring-1"></div>
+                  <div class="target-center-dot"></div>
+                </div>
+
+                <!-- Digital Readout Overlay HUD -->
+                <div class="dot-distance-hud">
+                  <div class="hud-digital-readout">
+                    <span class="hud-number" id="dot-hud-cm">40.0</span>
+                    <span class="hud-unit">cm</span>
+                  </div>
+                  <div class="hud-mm-sub" id="dot-hud-mm">400 mm to corneal plane</div>
+                </div>
+              </div>
+            </div>
+
+            <!-- RIGHT PANEL: DUAL-PANEL EYE TRACKING PIP HUD -->
+            <div class="dot-camera-card" id="dot-camera-pip">
+              <div class="pip-header-desktop">
+                <div class="pip-title-col">
+                  <span class="pip-title">Real-Time Eye Tracking &bull; Gaze HUD</span>
+                  <span class="pip-sub">Computer vision pupil vector fitting</span>
+                </div>
+
+                <div class="pip-controls-group">
+                  <button class="pip-btn" id="pip-btn-flip" onclick="app.flipCameraVideo()" title="Flip 180°">Flip 180°</button>
+                  <button class="pip-btn" id="pip-btn-mirror" onclick="app.toggleCameraMirror()" title="Mirror Feed">Mirror</button>
+                  <button class="pip-btn" id="pip-btn-refocus" onclick="app.recenterEyeCrop()" title="Auto-Recenter Eye">Recenter</button>
+                  <button class="pip-btn pip-btn-calibrate" id="pip-btn-calibrate" onclick="app.calibrateCenter()" title="Calibrate Eye to Center (Press C)">
+                    Calibrate Center
+                  </button>
+                </div>
+              </div>
+
+              <!-- DUAL VIEWPORT PANELS (LIVE MACRO + 3D MODEL) -->
+              <div class="pip-dual-viewport-desktop">
+                <!-- Panel 1: Live Eye Macro -->
+                <div class="pip-subpanel pip-panel-left">
+                  <div class="pip-panel-tag-bar">
+                    <span class="panel-badge-pill">LIVE EYE MACRO</span>
+                    <span class="panel-meta" id="pip-target-eye-label">OD (Right)</span>
+                  </div>
+                  <div class="canvas-aspect-wrapper">
+                    <canvas id="dot-camera-left-canvas" width="280" height="190"></canvas>
+                  </div>
+                </div>
+
+                <!-- Panel 2: 3D Eyeball Model -->
+                <div class="pip-subpanel pip-panel-right">
+                  <div class="pip-panel-tag-bar">
+                    <span class="panel-badge-pill">3D EYE MODEL</span>
+                    <span class="panel-meta" id="pip-gaze-vector-label">Gaze: [0, 0, 1]</span>
+                  </div>
+                  <div class="canvas-aspect-wrapper">
+                    <canvas id="dot-camera-right-canvas" width="280" height="190"></canvas>
+                  </div>
+                </div>
+
+                <!-- Hidden Video Stream Pipeline -->
+                <video id="dot-camera-video" autoplay playsinline muted class="camera-hidden-pipeline"></video>
+              </div>
+
+              <!-- Telemetry & Symmetry Footer -->
+              <div class="pip-footer-desktop">
+                <div class="pip-metric-row">
+                  <span class="pip-metric-label">Alignment Symmetry:</span>
+                  <strong id="pip-symmetry-val" class="pip-metric-val">99.4%</strong>
+                </div>
+                <div class="pip-metric-bar">
+                  <div class="pip-bar-fill" id="pip-symmetry-bar" style="width: 99%;"></div>
+                </div>
+                <div class="pip-telemetry-row">
+                  <span class="pip-pill" id="pip-telemetry-pupil">Pupil: (110, 75)</span>
+                  <span class="pip-pill" id="pip-telemetry-gaze">Gaze: [0.00, 0.00, 1.00]</span>
+                </div>
+              </div>
+            </div>
+
+          </div>
+
+          <!-- FULL-WIDTH BOTTOM STEPPER MOTOR CONTROL DECK -->
+          <div class="dot-control-deck-desktop">
+            <!-- 40cm Rail Track Visualizer -->
+            <div class="rail-track-visualizer">
+              <div class="rail-track-labels">
+                <span>Chin Rest (0.0 cm)</span>
+                <span id="rail-carriage-label">Carriage: 40.0 cm</span>
+                <span>Home Position (40.0 cm)</span>
+              </div>
+              <div class="rail-track-groove">
+                <div class="rail-track-fill" id="rail-track-fill" style="width: 100%;"></div>
+                <div class="rail-carriage-cursor" id="rail-carriage-cursor" style="left: 100%;">
+                  <svg width="14" height="14" viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="2" width="12" height="20" rx="2"/></svg>
+                </div>
+              </div>
+            </div>
+
+            <!-- Action Controls Row -->
+            <div class="stepper-actions-row-desktop">
+              <div class="stepper-buttons-group">
+                <button class="btn-stepper-primary" id="btn-start-stepper" onclick="app.toggleStepperApproach()">
+                  <svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+                  <span id="btn-start-text">Start Stepper Approach</span>
+                </button>
+                <button class="btn-stepper-stop" onclick="app.stopAndLockMeasurement()">
+                  Stop &amp; Lock NPC
+                </button>
+                <button class="btn-stepper-reset" onclick="app.resetRailToHome()">
+                  Reset to 40cm
+                </button>
+              </div>
+
+              <!-- Speed Selection & Auto-Stop Toggle -->
+              <div class="stepper-options-group">
+                <div class="stepper-speed-group">
+                  <span class="speed-label">Approach Speed:</span>
+                  <button class="speed-pill" id="speed-slow" onclick="app.setStepperSpeed(0.8)">0.8 cm/s</button>
+                  <button class="speed-pill active" id="speed-norm" onclick="app.setStepperSpeed(1.5)">1.5 cm/s</button>
+                  <button class="speed-pill" id="speed-fast" onclick="app.setStepperSpeed(2.5)">2.5 cm/s</button>
+                </div>
+
+                <label class="auto-stop-label">
+                  <input type="checkbox" id="chk-auto-stop" checked onchange="app.toggleAutoStop(this.checked)">
+                  <span>Auto-Stop on Convergence Break</span>
+                </label>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 4: VISUAL ACUITY EXAM (MATCHING IMAGE 7 NEAR VA)
+             =================================================================== -->
+        <section id="view-exam" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <div class="stage-tag-badge">Near Visual Acuity Protocol &bull; 40cm Standard Fixation</div>
+              <h1 class="desktop-view-title">Near Visual Acuity (Snellen &amp; Tumbling E)</h1>
+            </div>
+            <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+          </div>
+
+          <div class="exam-desktop-grid">
+            <!-- Left Panel: High Contrast Optotype Stimulus Screen -->
+            <div class="optotype-stimulus-card">
+              <div class="optotype-display-box">
+                <div id="optotype-stimulus" class="optotype-char">E</div>
+                <div class="optotype-meta-footer">
+                  <span>Trial <strong id="exam-trial-num">1</strong> of 8</span>
+                  <span>&bull;</span>
+                  <span id="exam-acuity-tag">20/40 Equiv</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Direction Keypad & Protocol Log -->
+            <div class="exam-keypad-card">
+              <h3 class="keypad-title">Operator Keypad Response</h3>
+              <p class="keypad-sub">Select the perceived orientation of the optotype</p>
+
+              <div class="dpad-container">
+                <button class="dpad-btn dpad-up" onclick="app.recordResponse('up')">&uarr; UP</button>
+                <div class="dpad-middle-row">
+                  <button class="dpad-btn dpad-left" onclick="app.recordResponse('left')">&larr; LEFT</button>
+                  <button class="dpad-btn dpad-right" onclick="app.recordResponse('right')">&rarr; RIGHT</button>
+                </div>
+                <button class="dpad-btn dpad-down" onclick="app.recordResponse('down')">&darr; DOWN</button>
+              </div>
+
+              <div class="exam-summary-box">
+                <div class="summary-metric">
+                  <span class="summary-label">Target Eye:</span>
+                  <strong class="summary-val" id="exam-active-eye-tag">OD</strong>
+                </div>
+                <div class="summary-metric">
+                  <span class="summary-label">Fixation Rail:</span>
+                  <strong class="summary-val" id="exam-active-dist-tag">40cm</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW: JAEGER'S NEAR READING CHART (J1-J7 PRESBYOPIA SCREENING)
+             =================================================================== -->
+        <section id="view-jaeger" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <div class="stage-tag-badge">Jaeger's Near Reading Chart &bull; 40cm Standard Fixation</div>
+              <h1 class="desktop-view-title">Jaeger's Chart (J1&ndash;J7 Presbyopia Screening)</h1>
+            </div>
+            <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+          </div>
+
+          <div class="exam-desktop-grid">
+            <!-- Left Panel: Reading Card -->
+            <div class="optotype-stimulus-card">
+              <div class="optotype-display-box" style="align-items:flex-start; justify-content:flex-start; padding:32px;">
+                <p id="jaeger-reading-text" style="font-family:var(--font-main); font-weight:600; color:#000000; line-height:1.5; max-width:420px; margin:0;">
+                  The quick brown fox jumps over the lazy dog near the quiet riverbank at dawn.
+                </p>
+                <div class="optotype-meta-footer">
+                  <span>Line <strong id="jaeger-active-level">J2</strong></span>
+                  <span>&bull;</span>
+                  <span id="jaeger-equiv-tag">~20/25 Equivalent</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Operator Level Selector -->
+            <div class="exam-keypad-card">
+              <h3 class="keypad-title">Operator: Smallest Line Read Comfortably</h3>
+              <p class="keypad-sub">Have the patient read aloud; select the smallest legible line</p>
+
+              <div class="jaeger-level-row">
+                <button type="button" class="jaeger-level-btn" data-level="J1" onclick="app.setJaegerLevel('J1')">J1</button>
+                <button type="button" class="jaeger-level-btn" data-level="J2" onclick="app.setJaegerLevel('J2')">J2</button>
+                <button type="button" class="jaeger-level-btn" data-level="J3" onclick="app.setJaegerLevel('J3')">J3</button>
+                <button type="button" class="jaeger-level-btn" data-level="J4" onclick="app.setJaegerLevel('J4')">J4</button>
+                <button type="button" class="jaeger-level-btn" data-level="J5" onclick="app.setJaegerLevel('J5')">J5</button>
+                <button type="button" class="jaeger-level-btn" data-level="J6" onclick="app.setJaegerLevel('J6')">J6</button>
+                <button type="button" class="jaeger-level-btn" data-level="J7" onclick="app.setJaegerLevel('J7')">J7</button>
+              </div>
+
+              <div class="exam-summary-box">
+                <div class="summary-metric">
+                  <span class="summary-label">Target Eye:</span>
+                  <strong class="summary-val" id="jaeger-active-eye-tag">OD</strong>
+                </div>
+                <div class="summary-metric">
+                  <span class="summary-label">Fixation Rail:</span>
+                  <strong class="summary-val">40cm</strong>
+                </div>
+              </div>
+
+              <button class="btn-maroon-pill-large" style="width:100%; margin-top:16px;" onclick="app.saveJaegerRecord()">
+                <span>Save Record &rarr;</span>
+              </button>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW: ISHIHARA COLOR VISION SCREENING
+             =================================================================== -->
+        <section id="view-color-vision" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <div class="stage-tag-badge">Color Vision Screening &bull; Ishihara-Style Plates</div>
+              <h1 class="desktop-view-title">Color Vision (Red-Green Deficiency Screening)</h1>
+            </div>
+            <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+          </div>
+
+          <div class="exam-desktop-grid" id="color-vision-quiz-panel">
+            <!-- Left Panel: Plate Canvas -->
+            <div class="optotype-stimulus-card">
+              <div class="optotype-display-box">
+                <canvas id="color-vision-canvas" width="320" height="320" style="border-radius:50%;"></canvas>
+                <div class="optotype-meta-footer">
+                  <span>Plate <strong id="cv-plate-num">1</strong> of <strong id="cv-plate-total">5</strong></span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right Panel: Multiple Choice -->
+            <div class="exam-keypad-card">
+              <h3 class="keypad-title">What number do you see?</h3>
+              <p class="keypad-sub">Ask the patient to identify the number in the plate</p>
+
+              <div class="cv-choice-grid" id="cv-choice-grid">
+                <!-- Populated by JS -->
+              </div>
+
+              <div class="exam-summary-box">
+                <div class="summary-metric">
+                  <span class="summary-label">Correct So Far:</span>
+                  <strong class="summary-val" id="cv-score-tag">0/0</strong>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <!-- Result Panel (shown after last plate) -->
+          <div class="dashboard-catalog-panel hidden" id="color-vision-result-panel" style="max-width:560px; margin:0 auto;">
+            <div style="text-align:center; padding:10px 0;">
+              <h2 class="section-title" style="margin-bottom:6px;">Screening Complete</h2>
+              <span id="cv-result-badge" class="status-badge-green">Normal Color Vision</span>
+              <p style="font-size:13px; color:var(--text-muted); margin-top:14px;" id="cv-result-note"></p>
+              <div style="display:flex; justify-content:center; gap:10px; margin-top:20px;">
+                <button class="btn-stepper-reset" onclick="app.initColorVisionView()">Re-test</button>
+                <button class="btn-maroon-pill" onclick="app.saveColorVisionRecord()">Save Record &rarr;</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 5: PRODUCTS & TEST CHARTS (MATCHING IMAGE 7)
+             =================================================================== -->
+        <section id="view-products" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <h1 class="desktop-view-title">Clinical Modules &amp; Test Charts</h1>
+              <span class="desktop-view-subtitle">Accu-Vis diagnostic test catalog</span>
+            </div>
+            <button class="btn-maroon-pill" onclick="app.launchDotMeasure('npc')">Launch NPC Stepper Rail &rarr;</button>
+          </div>
+
+          <!-- Product Section -->
+          <div class="products-catalog-grid">
+            <!-- Near VA -->
+            <div class="catalog-card" onclick="app.switchView('exam')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_near_va.jpg" alt="Near VA">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">Near Visual Acuity</h3>
+                <p class="catalog-desc">Snellen tumbling E and letter progression calibrated for 40cm reading distance.</p>
+                <button class="catalog-btn">Launch Exam &rarr;</button>
+              </div>
+            </div>
+
+            <!-- NPC (Near Point of Convergence) -->
+            <div class="catalog-card" onclick="app.launchDotMeasure('npc')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_npc.jpg" alt="NPC Carriage">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">NPC Stepper Rail</h3>
+                <p class="catalog-desc">Motorized 40cm linear guide with dual-panel camera gaze and convergence tracking.</p>
+                <button class="catalog-btn">Launch Stepper &rarr;</button>
+              </div>
+            </div>
+
+            <!-- NPA -->
+            <div class="catalog-card" onclick="app.launchDotMeasure('npa')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_npa.jpg" alt="NPA Chart">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">Near Point of Accommodation</h3>
+                <p class="catalog-desc">Push-up amplitude assessment protocol along the linear optical carriage.</p>
+                <button class="catalog-btn">Launch NPA &rarr;</button>
+              </div>
+            </div>
+
+            <!-- Color Vision -->
+            <div class="catalog-card" onclick="app.switchView('color-vision')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_color_vis.jpg" alt="Color Vision">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">Color Vision</h3>
+                <p class="catalog-desc">Ishihara pseudoisochromatic plate series for red-green deficiency screening.</p>
+                <button class="catalog-btn">Launch Module &rarr;</button>
+              </div>
+            </div>
+
+            <!-- Jaeger's Chart -->
+            <div class="catalog-card" onclick="app.switchView('jaeger')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_jaeger.jpg" alt="Jaeger's Chart">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">Jaeger's Chart</h3>
+                <p class="catalog-desc">Standard near reading card series from J1 to J7 for presbyopia evaluation.</p>
+                <button class="catalog-btn">Open Chart &rarr;</button>
+              </div>
+            </div>
+
+            <!-- Line Dot Fixture Target -->
+            <div class="catalog-card" onclick="app.launchDotMeasure('npc')">
+              <div class="catalog-thumb-box">
+                <img src="images/thumb_line_dot.jpg" alt="Line Dot Carriage">
+              </div>
+              <div class="catalog-body">
+                <h3 class="catalog-title">Line Dot Fixture Target</h3>
+                <p class="catalog-desc">High-contrast concentric fixation target mounted on the motorized rail carriage.</p>
+                <button class="catalog-btn">View Fixture &rarr;</button>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 6: CLINIC DATABASE RECORDS (MATCHING CATEGORIES EXISTING PATIENT)
+             =================================================================== -->
+        <section id="view-records" class="app-view">
+          <div class="desktop-view-header">
+            <div>
+              <h1 class="desktop-view-title">Clinical Patient Database</h1>
+              <span class="desktop-view-subtitle">SQLite and JSON synchronized diagnostic session archives</span>
+            </div>
+            <div class="header-action-group">
+              <button class="btn-outline-maroon" onclick="app.exportResultJSON()">
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                <span>Export JSON</span>
+              </button>
+              <button class="btn-maroon-pill" onclick="app.switchView('intake')">
+                + New Patient Intake
+              </button>
+            </div>
+          </div>
+
+          <!-- Desktop Records Table Card -->
+          <div class="database-table-card">
+            <div class="table-search-bar">
+              <input type="text" placeholder="Filter records by patient name or MRN..." oninput="app.filterPatients(this.value)" class="form-pill-input">
+            </div>
+
+            <div class="recent-patients-list" id="database-records-list">
+              <!-- Dynamically populated from SQLite Database via app.js -->
+            </div>
+          </div>
+
+          <!-- Measurement Results Log (NPC / NPA / Near VA / Jaeger's / Color Vision) -->
+          <div class="database-table-card" style="margin-top:20px;">
+            <div class="panel-heading-row" style="margin-bottom:14px;">
+              <div>
+                <h2 class="section-title">Measurement Results Log</h2>
+                <span class="section-hint">Latest clinical test results across all patients, newest first</span>
+              </div>
+            </div>
+
+            <div style="overflow-x:auto;">
+              <table class="logs-table" id="logs-table">
+                <thead>
+                  <tr>
+                    <th>Patient</th>
+                    <th>Test</th>
+                    <th>Eye</th>
+                    <th>Result</th>
+                    <th>Verdict</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody id="logs-table-body">
+                  <!-- Dynamically populated from /api/logs via app.js -->
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </section>
+
+        <!-- ===================================================================
+             VIEW 7: SPLASH & WELCOME SCREEN (MATCHING IMAGES 1, 2, 9)
+             =================================================================== -->
+        <section id="view-splash" class="app-view">
+          <div class="view-splash-container-desktop">
+            <div class="splash-brand-hero">
+              <img src="images/accuvis_logo.jpg" alt="Accu-Vis Logo" class="splash-logo-img">
+              <h1 class="splash-title">ACCU-VIS</h1>
+              <span class="splash-subtitle">Compact Clinical Station for Near Vision &amp; Convergence Testing</span>
+            </div>
+
+            <div class="welcome-overlay-sheet-desktop">
+              <h2 class="welcome-sheet-title">Welcome to Accu-Vis</h2>
+              <p class="welcome-sheet-desc">
+                Welcome to ACCU-VIS, your smart solution for easy and reliable vision assessment. Designed for modern optometry, it delivers precise, consistent, and easy-to-use near vision and binocular testing.<br><br>
+                Integrated with 40cm motorized linear carriage, live dual-panel eye tracking HUD, and seamless SQLite clinical record keeping.
+              </p>
+              <button class="btn-maroon-pill-large" onclick="app.switchView('dashboard')">
+                Enter Clinical Workstation &rarr;
+              </button>
+            </div>
+          </div>
+        </section>
+
+      </main>
+    </div>
+  </div>
+
+  <!-- MEASUREMENT RESULT MODAL -->
+  <div id="modal-dot-result" class="modal-backdrop hidden" onclick="app.closeDotResultModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header-row">
+        <div>
+          <h3 class="modal-title">Measurement Result</h3>
+          <span style="font-size:12px; color:var(--text-muted);" id="res-dot-modal-subtitle">Near Point of Convergence (NPC)</span>
+        </div>
+        <button class="btn-close-circle" onclick="app.closeDotResultModal()">&times;</button>
+      </div>
+
+      <div style="text-align:center; padding:18px 0; background:var(--input-bg); border-radius:var(--radius-lg); margin-bottom:16px;">
+        <span style="font-size:38px; font-weight:800; color:var(--primary-maroon);" id="res-dot-dist-val">12.4</span>
+        <span style="font-size:16px; font-weight:700; color:var(--text-muted);">cm</span>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="res-dot-dist-mm">124 mm from Cornea</div>
+        <div id="res-dot-verdict-badge" class="status-badge-green">Normal Near Point of Convergence</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:10px; padding:0 8px;" id="res-dot-clinical-note"></div>
+        <div style="font-size:10px; color:var(--text-muted); margin-top:6px; text-transform:uppercase; letter-spacing:0.4px;" id="res-dot-trigger"></div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; gap:10px;">
+        <button class="btn-stepper-reset" style="flex:1;" onclick="app.closeDotResultModal(); app.resetRailToHome();">Re-test</button>
+        <button class="btn-maroon-pill" style="flex:2;" onclick="app.saveAndNextPatient()">Save Record &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- VISUAL ACUITY (NEAR VA) RESULT MODAL -->
+  <div id="modal-exam-result" class="modal-backdrop hidden" onclick="app.closeExamResultModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header-row">
+        <div>
+          <h3 class="modal-title">Visual Acuity Result</h3>
+          <span style="font-size:12px; color:var(--text-muted);">Near Visual Acuity (Snellen &amp; Tumbling E)</span>
+        </div>
+        <button class="btn-close-circle" onclick="app.closeExamResultModal()">&times;</button>
+      </div>
+
+      <div style="text-align:center; padding:18px 0; background:var(--input-bg); border-radius:var(--radius-lg); margin-bottom:16px;">
+        <span style="font-size:38px; font-weight:800; color:var(--primary-maroon);" id="res-exam-snellen">20/20</span>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="res-exam-logmar">LogMAR 0.00</div>
+        <div id="res-exam-verdict-badge" class="status-badge-green">Normal Visual Acuity</div>
+        <div style="font-size:11px; color:var(--text-muted); margin-top:10px; padding:0 8px;" id="res-exam-clinical-note"></div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; gap:10px; margin-bottom:10px;">
+        <div style="flex:1; text-align:center; background:var(--input-bg); border-radius:var(--radius-md); padding:8px;">
+          <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">Eye</div>
+          <strong id="res-exam-eye" style="font-size:13px;">OD</strong>
+        </div>
+        <div style="flex:1; text-align:center; background:var(--input-bg); border-radius:var(--radius-md); padding:8px;">
+          <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">Distance</div>
+          <strong id="res-exam-distance" style="font-size:13px;">40cm</strong>
+        </div>
+        <div style="flex:1; text-align:center; background:var(--input-bg); border-radius:var(--radius-md); padding:8px;">
+          <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">Accuracy</div>
+          <strong id="res-exam-accuracy" style="font-size:13px;">8/8</strong>
+        </div>
+      </div>
+
+      <div style="display:flex; justify-content:space-between; gap:10px;">
+        <button class="btn-stepper-reset" style="flex:1;" onclick="app.retestExam()">Re-test</button>
+        <button class="btn-maroon-pill" style="flex:2;" onclick="app.saveExamRecord()">Save Record &rarr;</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- EDIT DOCTOR PROFILE MODAL -->
+  <div id="modal-edit-profile" class="modal-backdrop hidden" onclick="app.closeEditProfileModal(event)">
+    <div class="modal-card" onclick="event.stopPropagation()">
+      <div class="modal-header-row">
+        <div>
+          <h3 class="modal-title">Edit Profile</h3>
+          <span style="font-size:12px; color:var(--text-muted);">Update your clinical profile details</span>
+        </div>
+        <button class="btn-close-circle" onclick="app.closeEditProfileModal()">&times;</button>
+      </div>
+
+      <div style="display:flex; flex-direction:column; align-items:center; margin-bottom:18px;">
+        <div id="edit-profile-avatar-preview" class="doctor-avatar-img doctor-avatar-fallback" style="width:76px; height:76px; font-size:22px; margin-bottom:10px;">DR</div>
+        <input type="file" id="edit-profile-photo-input" accept="image/*" style="display:none;" onchange="app.handleProfilePhotoChange(event)">
+        <div style="display:flex; gap:8px;">
+          <button type="button" class="btn-outline-maroon" style="padding:6px 14px; font-size:12px;" onclick="document.getElementById('edit-profile-photo-input').click()">Upload Photo</button>
+          <button type="button" class="btn-outline-maroon" style="padding:6px 14px; font-size:12px;" onclick="app.removeProfilePhoto()">Remove Photo</button>
+        </div>
+      </div>
+
+      <form id="form-edit-profile" onsubmit="app.saveProfileEdits(event)">
+        <div class="auth-pill-group">
+          <div class="auth-input-wrap">
+            <input type="text" id="edit-profile-name" class="auth-pill-input no-icon" placeholder="Full Name" required>
+          </div>
+        </div>
+        <div class="auth-pill-group">
+          <div class="auth-input-wrap">
+            <input type="text" id="edit-profile-role" class="auth-pill-input no-icon" placeholder="Role (e.g. Optometrist)" required>
+          </div>
+        </div>
+
+        <button type="submit" class="btn-maroon-pill-large" style="width:100%; margin-top:6px;">
+          <span>Save Profile &rarr;</span>
+        </button>
+      </form>
+    </div>
+  </div>
+
+  <!-- FLOATING TOAST NOTIFICATION CONTAINER -->
+  <div class="app-toast-container" id="app-toast-container"></div>
+
+  <!-- SCRIPTS -->
+  <script src="eye_tracker.js"></script>
+  <script src="app.js"></script>
+</body>
+</html>
