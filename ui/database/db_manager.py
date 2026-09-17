@@ -67,6 +67,7 @@ def init_db():
             mrn TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
             age INTEGER,
+            birthdate TEXT,
             gender TEXT,
             eye_preference TEXT DEFAULT 'OD',
             notes TEXT,
@@ -105,6 +106,7 @@ def init_db():
         """)
 
         # Postgres supports idempotent column migrations directly
+        cursor.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS birthdate TEXT")
         cursor.execute("ALTER TABLE clinical_logs ADD COLUMN IF NOT EXISTS test_type TEXT NOT NULL DEFAULT 'NPC'")
         cursor.execute("ALTER TABLE users ADD COLUMN IF NOT EXISTS avatar TEXT")
     else:
@@ -114,6 +116,7 @@ def init_db():
             mrn TEXT UNIQUE NOT NULL,
             full_name TEXT NOT NULL,
             age INTEGER,
+            birthdate TEXT,
             gender TEXT,
             eye_preference TEXT DEFAULT 'OD',
             notes TEXT,
@@ -138,7 +141,12 @@ def init_db():
         )
         """)
 
-        # Migration: older databases created before test_type existed
+        # Migrations for older local databases
+        cursor.execute("PRAGMA table_info(patients)")
+        patient_cols = {row[1] for row in cursor.fetchall()}
+        if "birthdate" not in patient_cols:
+            cursor.execute("ALTER TABLE patients ADD COLUMN birthdate TEXT")
+
         cursor.execute("PRAGMA table_info(clinical_logs)")
         existing_cols = {row[1] for row in cursor.fetchall()}
         if "test_type" not in existing_cols:
@@ -246,11 +254,12 @@ def create_patient(data):
         mrn = f"ACV-2026-{datetime.now().strftime('%M%S')}"
 
     cursor.execute(q("""
-    INSERT INTO patients (mrn, full_name, age, gender, eye_preference, notes, created_at)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO patients (mrn, full_name, age, birthdate, gender, eye_preference, notes, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     ON CONFLICT(mrn) DO UPDATE SET
         full_name=excluded.full_name,
         age=excluded.age,
+        birthdate=excluded.birthdate,
         gender=excluded.gender,
         eye_preference=excluded.eye_preference,
         notes=excluded.notes
@@ -258,6 +267,7 @@ def create_patient(data):
         mrn,
         data.get("full_name", "Anonymous Patient"),
         int(data.get("age", 25)),
+        data.get("birthdate") or None,
         data.get("gender", "Unspecified"),
         data.get("eye_preference", "OD"),
         data.get("notes", ""),

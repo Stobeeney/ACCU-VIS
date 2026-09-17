@@ -375,6 +375,28 @@ class AccuVisApp {
     this.updateChinRestView();
   }
 
+  updateIntakeAge() {
+    const birthdateInput = document.getElementById('intake-birthdate');
+    const ageInput = document.getElementById('intake-age');
+    if (!birthdateInput || !ageInput) return;
+
+    const birthdate = new Date(`${birthdateInput.value}T00:00:00`);
+    const today = new Date();
+    if (!birthdateInput.value || Number.isNaN(birthdate.getTime()) || birthdate > today) {
+      ageInput.value = '';
+      ageInput.placeholder = birthdate > today ? 'Birthdate cannot be in the future' : 'Enter birthdate first';
+      return;
+    }
+
+    let age = today.getFullYear() - birthdate.getFullYear();
+    const hasNotHadBirthday = today.getMonth() < birthdate.getMonth()
+      || (today.getMonth() === birthdate.getMonth() && today.getDate() < birthdate.getDate());
+    if (hasNotHadBirthday) age -= 1;
+
+    ageInput.value = `${age} years`;
+    ageInput.placeholder = '';
+  }
+
   async handleIntakeSubmit(event) {
     if (event) event.preventDefault();
 
@@ -385,13 +407,21 @@ class AccuVisApp {
 
     const fullName = (nameInput && nameInput.value.trim()) || "Walk-in Patient";
     const mrn = (mrnInput && mrnInput.value.trim()) || this.generateNewMRN();
-    const age = parseInt(ageInput ? ageInput.value : 28) || 28;
+    const birthdateInput = document.getElementById('intake-birthdate');
+    const birthdate = birthdateInput ? birthdateInput.value : '';
+    const age = parseInt(ageInput ? ageInput.value : '', 10);
     const notes = notesInput ? notesInput.value.trim() : "";
+
+    if (!birthdate || Number.isNaN(age)) {
+      this.showNotification("Birthdate Required", "Enter a valid birthdate to calculate the patient's age.");
+      return;
+    }
 
     this.currentPatient = {
       id: mrn,
       name: fullName,
       age: age,
+      birthdate: birthdate,
       notes: notes
     };
 
@@ -399,7 +429,8 @@ class AccuVisApp {
       mrn: mrn,
       full_name: fullName,
       age: age,
-      gender: this.intakeState.gender,
+      birthdate: birthdate,
+      gender: document.getElementById('intake-gender')?.value || this.intakeState.gender,
       eye_preference: this.config.eye,
       notes: notes
     };

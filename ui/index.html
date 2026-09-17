@@ -631,7 +631,7 @@
                   <input type="text" class="form-pill-input" id="intake-address" value="123 Anywhere St., Any City, ST 12345" placeholder="Address">
                 </div>
 
-                <!-- Form Row: Gender & Age -->
+                <!-- Form Row: Gender & calculated age -->
                 <div class="form-row-2col">
                   <div class="form-pill-group">
                     <label class="form-pill-label" for="intake-gender">Gender</label>
@@ -646,17 +646,9 @@
                   </div>
 
                   <div class="form-pill-group">
-                    <label class="form-pill-label" for="intake-age-select">Age</label>
-                    <div class="form-select-wrap">
-                      <select id="intake-age-select">
-                        <option value="28" selected>28 Years</option>
-                        <option value="26">26 Years</option>
-                        <option value="35">35 Years</option>
-                        <option value="42">42 Years</option>
-                        <option value="Any Age">Any Age</option>
-                      </select>
-                      <span class="select-arrow-icon">&blacktriangledown;</span>
-                    </div>
+                    <label class="form-pill-label" for="intake-age">Age</label>
+                    <input type="text" class="form-pill-input" id="intake-age" placeholder="Enter birthdate first" readonly aria-describedby="intake-age-help">
+                    <small id="intake-age-help" class="form-field-help">Calculated automatically from birthdate</small>
                   </div>
                 </div>
 
@@ -667,14 +659,7 @@
                 <!-- Form Row: Birthdate -->
                 <div class="form-pill-group">
                   <label class="form-pill-label" for="intake-birthdate">Birthdate</label>
-                  <div class="form-select-wrap">
-                    <select id="intake-birthdate">
-                      <option value="December 23, 2000" selected>December 23, 2000</option>
-                      <option value="June 19, 1991">June 19, 1991</option>
-                      <option value="May 12, 1998">May 12, 1998</option>
-                    </select>
-                    <span class="select-arrow-icon">&blacktriangledown;</span>
-                  </div>
+                  <input type="date" class="form-pill-input" id="intake-birthdate" required onchange="app.updateIntakeAge()">
                 </div>
 
                 <!-- Target Eye Protocol Selector -->
