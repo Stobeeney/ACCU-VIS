@@ -75,6 +75,18 @@ class AccuVisApp {
     };
     this.eyeTracker = null;
 
+    // Remote "Phone Camera" source: another phone streams JPEG frames over
+    // the local network (see camera.html); this device polls and re-injects
+    // them into the same <video> the local-webcam eye tracker already reads.
+    this.remoteCameraState = {
+      mode: 'local', // 'local' or 'remote'
+      canvas: null,
+      ctx: null,
+      pollTimer: null,
+      statusTimer: null,
+      streamAttached: false
+    };
+
     // Saved Patient Records (localStorage backed)
     this.records = this.loadRecords();
 
@@ -189,6 +201,7 @@ class AccuVisApp {
       if (this.eyeTracker && this.eyeTracker.isRunning) {
         this.eyeTracker.stop();
       }
+      this.stopRemoteCameraFeed();
     }
   }
 
@@ -1884,8 +1897,20 @@ class AccuVisApp {
     const btnMirror = document.getElementById('pip-btn-mirror');
     if (btnMirror) btnMirror.classList.toggle('active', this.dotState.cameraMirrored);
 
-    // Immediately start the live camera
-    this.startCameraFeed();
+    const localBtn = document.getElementById('camera-source-local');
+    const remoteBtn = document.getElementById('camera-source-remote');
+    const isRemote = this.remoteCameraState.mode === 'remote';
+    if (localBtn) localBtn.classList.toggle('active', !isRemote);
+    if (remoteBtn) remoteBtn.classList.toggle('active', isRemote);
+    const banner = document.getElementById('remote-camera-banner');
+    if (banner) banner.classList.toggle('hidden', !isRemote);
+
+    // Resume whichever camera source was active (local webcam or remote phone)
+    if (isRemote) {
+      this.startRemoteCameraFeed();
+    } else {
+      this.startCameraFeed();
+    }
   }
 
   recenterEyeCrop() {
@@ -1966,6 +1991,114 @@ class AccuVisApp {
       }
     } catch (e) {
       console.warn("Live camera initialization notice:", e);
+    }
+  }
+
+  // =========================================================================
+  // REMOTE "PHONE CAMERA" SOURCE (see camera.html + server.py relay)
+  // =========================================================================
+
+  setCameraSource(mode) {
+    if (mode === this.remoteCameraState.mode) return;
+    this.remoteCameraState.mode = mode;
+
+    const localBtn = document.getElementById('camera-source-local');
+    const remoteBtn = document.getElementById('camera-source-remote');
+    if (localBtn) localBtn.classList.toggle('active', mode === 'local');
+    if (remoteBtn) remoteBtn.classList.toggle('active', mode === 'remote');
+
+    const banner = document.getElementById('remote-camera-banner');
+    if (banner) banner.classList.toggle('hidden', mode !== 'remote');
+
+    if (mode === 'remote') {
+      if (this.eyeTracker) this.eyeTracker.stop();
+      this.startRemoteCameraFeed();
+    } else {
+      this.stopRemoteCameraFeed();
+      this.startCameraFeed();
+    }
+  }
+
+  startRemoteCameraFeed() {
+    const state = this.remoteCameraState;
+    state.streamAttached = false;
+
+    if (!state.canvas) {
+      state.canvas = document.createElement('canvas');
+      state.canvas.width = 640;
+      state.canvas.height = 480;
+      state.ctx = state.canvas.getContext('2d');
+    }
+
+    const pollFrame = () => {
+      const img = new Image();
+      img.onload = () => {
+        if (this.remoteCameraState.mode !== 'remote') return;
+        if (img.naturalWidth) {
+          state.canvas.width = img.naturalWidth;
+          state.canvas.height = img.naturalHeight;
+        }
+        state.ctx.drawImage(img, 0, 0, state.canvas.width, state.canvas.height);
+        URL.revokeObjectURL(img.src);
+
+        if (!state.streamAttached && this.eyeTracker && this.eyeTracker.video) {
+          const stream = state.canvas.captureStream(10);
+          this.eyeTracker.video.srcObject = stream;
+          this.eyeTracker.video.muted = true;
+          this.eyeTracker.video.playsInline = true;
+          this.eyeTracker.video.play().catch(() => {});
+          this.eyeTracker.recenterEyeCrop();
+          this.eyeTracker.startProcessingLoop();
+          state.streamAttached = true;
+        }
+      };
+      img.onerror = () => { /* no frame yet; keep polling silently */ };
+
+      fetch(`/api/camera/frame?t=${Date.now()}`)
+        .then(res => (res.ok ? res.blob() : null))
+        .then(blob => { if (blob) img.src = URL.createObjectURL(blob); })
+        .catch(() => {});
+    };
+
+    if (state.pollTimer) clearInterval(state.pollTimer);
+    state.pollTimer = setInterval(pollFrame, 150);
+    pollFrame();
+
+    this.pollRemoteCameraStatus();
+    if (state.statusTimer) clearInterval(state.statusTimer);
+    state.statusTimer = setInterval(() => this.pollRemoteCameraStatus(), 1500);
+  }
+
+  stopRemoteCameraFeed() {
+    const state = this.remoteCameraState;
+    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
+    if (state.statusTimer) { clearInterval(state.statusTimer); state.statusTimer = null; }
+    state.streamAttached = false;
+
+    if (this.eyeTracker && this.eyeTracker.video && this.eyeTracker.video.srcObject) {
+      const stream = this.eyeTracker.video.srcObject;
+      if (stream.getTracks) stream.getTracks().forEach(t => t.stop());
+      this.eyeTracker.video.srcObject = null;
+    }
+  }
+
+  async pollRemoteCameraStatus() {
+    const statusText = document.getElementById('remote-camera-status-text');
+    const urlEl = document.getElementById('remote-camera-url');
+    const banner = document.getElementById('remote-camera-banner');
+    try {
+      const res = await fetch('/api/camera/status');
+      const data = await res.json();
+      if (banner) banner.classList.toggle('connected', !!data.connected);
+      if (statusText) {
+        statusText.textContent = data.connected
+          ? 'Camera phone connected'
+          : 'Waiting for camera phone...';
+      }
+      if (urlEl) urlEl.textContent = data.lan_url || '';
+    } catch (e) {
+      if (statusText) statusText.textContent = 'Camera relay unavailable (local network only)';
+      if (banner) banner.classList.remove('connected');
     }
   }
 

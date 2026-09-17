@@ -1,0 +1,233 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+  <title>Accu-Vis | Camera Phone</title>
+  <link rel="stylesheet" href="app.css">
+  <style>
+    body {
+      overflow: auto;
+      background: var(--primary-maroon-dark);
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      min-height: 100vh;
+      padding: 20px 16px 40px;
+    }
+
+    .camera-page-header {
+      text-align: center;
+      color: #FFFFFF;
+      margin-bottom: 16px;
+    }
+
+    .camera-page-header img {
+      width: 56px;
+      height: 56px;
+      border-radius: var(--radius-md);
+      background: #FFFFFF;
+      padding: 4px;
+      margin-bottom: 8px;
+    }
+
+    .camera-page-header h1 {
+      font-size: 18px;
+      font-weight: 800;
+      letter-spacing: 0.5px;
+    }
+
+    .camera-page-header p {
+      font-size: 12.5px;
+      color: rgba(255, 255, 255, 0.75);
+      margin-top: 2px;
+    }
+
+    .camera-preview-wrap {
+      width: 100%;
+      max-width: 460px;
+      aspect-ratio: 4 / 3;
+      background: #000000;
+      border-radius: var(--radius-lg);
+      overflow: hidden;
+      border: 2px solid rgba(255, 255, 255, 0.15);
+      position: relative;
+      margin-bottom: 16px;
+    }
+
+    #camera-preview {
+      width: 100%;
+      height: 100%;
+      object-fit: cover;
+      display: block;
+    }
+
+    .camera-status-pill {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      padding: 4px 12px;
+      border-radius: var(--radius-pill);
+      font-size: 11px;
+      font-weight: 700;
+      background: rgba(0, 0, 0, 0.6);
+      color: #FFFFFF;
+    }
+
+    .camera-status-pill.live {
+      background: rgba(45, 138, 78, 0.85);
+    }
+
+    .camera-controls-row {
+      display: flex;
+      gap: 10px;
+      width: 100%;
+      max-width: 460px;
+      margin-bottom: 12px;
+    }
+
+    .camera-controls-row .btn-maroon-pill-large,
+    .camera-controls-row .btn-outline-maroon {
+      flex: 1;
+      justify-content: center;
+    }
+
+    .camera-page-note {
+      max-width: 460px;
+      text-align: center;
+      font-size: 12px;
+      color: rgba(255, 255, 255, 0.65);
+      line-height: 1.5;
+    }
+  </style>
+</head>
+<body>
+  <div class="camera-page-header">
+    <img src="images/accuvis_logo.jpg" alt="Accu-Vis">
+    <h1>ACCU-VIS &bull; Camera Phone</h1>
+    <p>Mount this phone on the stepper rail, pointed at the patient's eye.</p>
+  </div>
+
+  <div class="camera-preview-wrap">
+    <video id="camera-preview" autoplay playsinline muted></video>
+    <span class="camera-status-pill" id="camera-status-pill">Not Streaming</span>
+  </div>
+
+  <div class="camera-controls-row">
+    <button class="btn-maroon-pill-large" id="btn-toggle-stream" onclick="toggleStreaming()">
+      <span>Start Streaming &rarr;</span>
+    </button>
+  </div>
+
+  <div class="camera-controls-row">
+    <button class="btn-outline-maroon" style="background:#FFFFFF;" onclick="switchFacingMode()">
+      Switch Front/Rear Camera
+    </button>
+  </div>
+
+  <p class="camera-page-note" id="camera-page-note">
+    Keep this page open on this phone. The controller device (tablet/laptop) will pick up this feed automatically once streaming starts.
+  </p>
+
+  <script>
+    const video = document.getElementById('camera-preview');
+    const statusPill = document.getElementById('camera-status-pill');
+    const toggleBtn = document.getElementById('btn-toggle-stream');
+    const noteEl = document.getElementById('camera-page-note');
+
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+
+    let streaming = false;
+    let sendTimer = null;
+    let framesSent = 0;
+    let facingMode = 'environment';
+
+    function setStatus(text, live) {
+      statusPill.textContent = text;
+      statusPill.classList.toggle('live', !!live);
+    }
+
+    async function startCameraStream() {
+      const constraints = {
+        video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
+        audio: false
+      };
+      const stream = await navigator.mediaDevices.getUserMedia(constraints);
+      video.srcObject = stream;
+      await video.play();
+
+      canvas.width = video.videoWidth || 640;
+      canvas.height = video.videoHeight || 480;
+
+      streaming = true;
+      framesSent = 0;
+      toggleBtn.querySelector('span').textContent = 'Stop Streaming';
+      setStatus('Streaming...', true);
+
+      if (sendTimer) clearInterval(sendTimer);
+      sendTimer = setInterval(sendFrame, 150); // ~6-7 fps, plenty for positioning checks
+    }
+
+    function stopCameraStream() {
+      streaming = false;
+      if (sendTimer) {
+        clearInterval(sendTimer);
+        sendTimer = null;
+      }
+      if (video.srcObject) {
+        video.srcObject.getTracks().forEach(t => t.stop());
+        video.srcObject = null;
+      }
+      toggleBtn.querySelector('span').textContent = 'Start Streaming →';
+      setStatus('Not Streaming', false);
+    }
+
+    function sendFrame() {
+      if (!streaming || video.readyState < 2) return;
+      ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+      canvas.toBlob((blob) => {
+        if (!blob || !streaming) return;
+        fetch('/api/camera/frame', {
+          method: 'POST',
+          headers: { 'Content-Type': 'image/jpeg' },
+          body: blob
+        }).then(() => {
+          framesSent++;
+          setStatus(`Streaming... (${framesSent} frames sent)`, true);
+        }).catch(() => {
+          setStatus('Connection lost — retrying...', false);
+        });
+      }, 'image/jpeg', 0.7);
+    }
+
+    function toggleStreaming() {
+      if (streaming) {
+        stopCameraStream();
+      } else {
+        startCameraStream().catch((err) => {
+          console.error(err);
+          setStatus('Camera access denied or unavailable', false);
+          noteEl.textContent = 'Could not access the camera. Check browser permissions and reload this page.';
+        });
+      }
+    }
+
+    async function switchFacingMode() {
+      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      if (streaming) {
+        stopCameraStream();
+        await startCameraStream();
+      }
+    }
+
+    // Keep the screen awake while streaming, where supported
+    let wakeLock = null;
+    document.addEventListener('visibilitychange', async () => {
+      if (streaming && document.visibilityState === 'visible' && 'wakeLock' in navigator) {
+        try { wakeLock = await navigator.wakeLock.request('screen'); } catch (e) {}
+      }
+    });
+  </script>
+</body>
+</html>

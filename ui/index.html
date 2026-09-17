@@ -758,6 +758,19 @@
                 </div>
               </div>
 
+              <!-- Camera Source: this device's own webcam, or a phone streaming over the local network -->
+              <div class="pip-source-row">
+                <div class="camera-source-toggle">
+                  <span class="camera-source-label">Camera Source:</span>
+                  <button class="pip-btn camera-source-btn active" id="camera-source-local" onclick="app.setCameraSource('local')">This Device</button>
+                  <button class="pip-btn camera-source-btn" id="camera-source-remote" onclick="app.setCameraSource('remote')">Phone Camera</button>
+                </div>
+                <div class="remote-camera-banner hidden" id="remote-camera-banner">
+                  <span id="remote-camera-status-text">Waiting for camera phone...</span>
+                  <span class="remote-camera-url" id="remote-camera-url"></span>
+                </div>
+              </div>
+
               <!-- DUAL VIEWPORT PANELS (LIVE MACRO + 3D MODEL) -->
               <div class="pip-dual-viewport-desktop">
                 <!-- Panel 1: Live Eye Macro -->

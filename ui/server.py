@@ -10,6 +10,8 @@ import socketserver
 import os
 import sys
 import json
+import time
+import socket
 import webbrowser
 
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -22,6 +24,25 @@ except Exception as e:
     db_manager = None
 
 PORT = 8080
+
+# In-memory latest-frame relay for the "phone as remote camera" feature.
+# The camera phone (camera.html) POSTs JPEG frames here; the controller
+# (dot-measure view) polls GET to display them. Local-network only, by
+# design -- this never touches Vercel/production, only python3 server.py.
+LATEST_FRAME = {"data": None, "ts": 0.0}
+CAMERA_STALE_SECONDS = 3.0
+
+def get_lan_ip():
+    """Best-effort LAN IP for display only; falls back to localhost."""
+    try:
+        s = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+        try:
+            s.connect(("8.8.8.8", 80))
+            return s.getsockname()[0]
+        finally:
+            s.close()
+    except Exception:
+        return "localhost"
 
 class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def __init__(self, *args, **kwargs):
@@ -60,11 +81,45 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
             users = db_manager.get_all_users() if db_manager else []
             self.wfile.write(json.dumps(users).encode('utf-8'))
             return
+        elif self.path.startswith('/api/camera/frame'):
+            if LATEST_FRAME["data"] is None:
+                self.send_response(404)
+                self.end_headers()
+                return
+            self.send_response(200)
+            self.send_header('Content-Type', 'image/jpeg')
+            self.end_headers()
+            self.wfile.write(LATEST_FRAME["data"])
+            return
+        elif self.path == '/api/camera/status':
+            age = (time.time() - LATEST_FRAME["ts"]) if LATEST_FRAME["ts"] else None
+            connected = age is not None and age < CAMERA_STALE_SECONDS
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({
+                "connected": connected,
+                "age_seconds": age,
+                "lan_url": f"http://{get_lan_ip()}:{self.server.server_address[1]}/camera.html"
+            }).encode('utf-8'))
+            return
 
         super().do_GET()
 
     def do_POST(self):
         content_length = int(self.headers.get('Content-Length', 0))
+
+        if self.path == '/api/camera/frame':
+            # Raw JPEG bytes from camera.html, not JSON -- read before any UTF-8 decode.
+            frame_bytes = self.rfile.read(content_length)
+            LATEST_FRAME["data"] = frame_bytes
+            LATEST_FRAME["ts"] = time.time()
+            self.send_response(200)
+            self.send_header('Content-Type', 'application/json')
+            self.end_headers()
+            self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+            return
+
         post_data = self.rfile.read(content_length).decode('utf-8')
         try:
             payload = json.loads(post_data) if post_data else {}
@@ -197,12 +252,18 @@ def run_server(port=PORT):
         sys.exit(1)
 
     url = f"http://localhost:{current_port}"
+    lan_url = f"http://{get_lan_ip()}:{current_port}"
     print("=" * 64)
     print("   ACCU-VIS OPERATOR-ASSISTED CLINICAL UI SERVER")
     print("=" * 64)
     print(f" * Serving directory: {DIRECTORY}")
     print(f" * Database directory: {os.path.join(DIRECTORY, 'database')}")
     print(f" * Server running at: {url}")
+    print(f" * On your local network: {lan_url}")
+    print(f" * Camera phone page:     {lan_url}/camera.html")
+    print(" * Open the controller (dashboard) and the camera phone page")
+    print("   using the LAN address above -- both devices must be on the")
+    print("   same WiFi network.")
     print(" * Press Ctrl+C to terminate the server.")
     print("=" * 64)
 

@@ -1583,6 +1583,65 @@ html.logged-out #view-login {
   background: var(--primary-maroon-light);
 }
 
+/* Camera Source Toggle (This Device vs. Remote Phone Camera) */
+.pip-source-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-bottom: 12px;
+}
+
+.camera-source-toggle {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.camera-source-label {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-muted);
+}
+
+.camera-source-btn.active {
+  background: var(--primary-maroon);
+  color: #FFFFFF;
+  border-color: var(--primary-maroon);
+  font-weight: 700;
+}
+
+.remote-camera-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent-red);
+  background: rgba(201, 42, 42, 0.08);
+  padding: 4px 10px;
+  border-radius: var(--radius-pill);
+}
+
+.remote-camera-banner.connected {
+  color: var(--accent-green);
+  background: rgba(45, 138, 78, 0.1);
+}
+
+.remote-camera-banner.hidden {
+  display: none;
+}
+
+.remote-camera-url {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  color: var(--primary-maroon);
+  background: rgba(74, 14, 23, 0.08);
+  padding: 2px 8px;
+  border-radius: var(--radius-pill);
+}
+
 /* Dual Viewports (Live Eye Macro + 3D Eyeball Model) */
 .pip-dual-viewport-desktop {
   display: grid;
