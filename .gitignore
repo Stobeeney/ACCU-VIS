@@ -17,3 +17,6 @@ ui/.vercel/
 
 # OS cruft
 .DS_Store
+
+# Local self-signed HTTPS certs
+ui/certs/

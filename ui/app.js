@@ -375,6 +375,13 @@ class AccuVisApp {
   }
 
   setIntakeEye(eye) {
+    this.setTestEye(eye);
+  }
+
+  // Eye under test (OD / OS / OU): drives the intake pills, the NPC/NPA eye selector,
+  // saved records, and which eye the tracker is allowed to detect.
+  setTestEye(eye) {
+    if (eye !== 'OD' && eye !== 'OS' && eye !== 'OU') eye = 'OD';
     this.config.eye = eye;
     if (this.currentPatient) {
       this.currentPatient.eye = eye;
@@ -382,10 +389,35 @@ class AccuVisApp {
     if (this.eyeTracker) {
       this.eyeTracker.setTargetEye(eye);
     }
-    document.querySelectorAll('.eye-choice-tile').forEach(tile => {
-      tile.classList.toggle('active', tile.id === `intake-eye-${eye.toLowerCase()}`);
-    });
+    this.syncEyeSelectorUI();
     this.updateChinRestView();
+  }
+
+  syncEyeSelectorUI() {
+    const eye = this.config.eye;
+    ['od', 'os', 'ou'].forEach(code => {
+      const active = eye.toLowerCase() === code;
+      const intakeBtn = document.getElementById(`intake-eye-${code}`);
+      if (intakeBtn) intakeBtn.classList.toggle('active', active);
+      const dotBtn = document.getElementById(`eye-select-${code}`);
+      if (dotBtn) dotBtn.classList.toggle('active', active);
+    });
+    const label = document.getElementById('pip-target-eye-label');
+    if (label) {
+      label.textContent = eye === 'OD' ? 'OD (Right Eye)' : eye === 'OS' ? 'OS (Left Eye)' : 'OU (Both Eyes)';
+    }
+  }
+
+  updateTrackerStatus(mode) {
+    const chip = document.getElementById('tracker-mode-chip');
+    if (!chip) return;
+    chip.classList.toggle('ready', mode === 'landmarks');
+    chip.classList.toggle('basic', mode === 'basic');
+    chip.textContent = mode === 'landmarks'
+      ? 'Tracker: face + iris landmarks'
+      : mode === 'basic'
+        ? 'Tracker: basic mode (landmarks unavailable)'
+        : 'Tracker: loading...';
   }
 
   updateIntakeAge() {
@@ -1871,7 +1903,7 @@ class AccuVisApp {
 
     if (!videoEl || !canvasLeftEl || !canvasRightEl) return;
 
-    const targetEye = (this.currentPatient && this.currentPatient.eye) || this.config.eye || 'OD';
+    const targetEye = this.config.eye || 'OD';
 
     if (!this.eyeTracker && window.AccuVisEyeTracker) {
       this.eyeTracker = new AccuVisEyeTracker({
@@ -1881,7 +1913,8 @@ class AccuVisApp {
         targetEye: targetEye,
         flipped180: this.dotState.cameraFlipped,
         mirrored: this.dotState.cameraMirrored,
-        onUpdate: (res) => this.handleEyeTrackerUpdate(res)
+        onUpdate: (res) => this.handleEyeTrackerUpdate(res),
+        onStatus: (mode) => this.updateTrackerStatus(mode)
       });
     } else if (this.eyeTracker) {
       this.eyeTracker.setCanvases(videoEl, canvasLeftEl, canvasRightEl);
@@ -1896,6 +1929,9 @@ class AccuVisApp {
 
     const btnMirror = document.getElementById('pip-btn-mirror');
     if (btnMirror) btnMirror.classList.toggle('active', this.dotState.cameraMirrored);
+
+    this.syncEyeSelectorUI();
+    if (this.eyeTracker) this.updateTrackerStatus(this.eyeTracker.mode);
 
     const localBtn = document.getElementById('camera-source-local');
     const remoteBtn = document.getElementById('camera-source-remote');

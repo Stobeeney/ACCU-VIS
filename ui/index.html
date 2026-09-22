@@ -704,43 +704,10 @@
             </div>
           </div>
 
-          <!-- Central Desktop Stage: Fixation Target Stage & Dual Eye Tracking HUD -->
+          <!-- Central Desktop Stage: Camera view & distance (fixation dot is shown on the camera phone) -->
           <div class="dot-desktop-stage-grid">
             
-            <!-- LEFT PANEL: FIXATION TARGET STAGE & DIGITAL READOUT -->
-            <div class="dot-target-stage-card">
-              <div class="stage-card-header">
-                <span class="stage-title">Fixation Target &bull; Carriage Stimulus</span>
-                <span class="stage-badge-maroon" id="dot-stage-protocol-badge">Active Protocol: NPC 40cm Approach</span>
-              </div>
-
-              <div class="target-canvas-stage-box" id="dot-target-container">
-                <!-- Reticle Crosshair Lines -->
-                <div class="dot-crosshair-lines">
-                  <div class="ch-line ch-h"></div>
-                  <div class="ch-line ch-v"></div>
-                </div>
-
-                <!-- Concentric Fixation Target (Rose/Maroon Design) -->
-                <div class="fixation-target-core">
-                  <div class="target-ring ring-3"></div>
-                  <div class="target-ring ring-2"></div>
-                  <div class="target-ring ring-1"></div>
-                  <div class="target-center-dot"></div>
-                </div>
-
-                <!-- Digital Readout Overlay HUD -->
-                <div class="dot-distance-hud">
-                  <div class="hud-digital-readout">
-                    <span class="hud-number" id="dot-hud-cm">40.0</span>
-                    <span class="hud-unit">cm</span>
-                  </div>
-                  <div class="hud-mm-sub" id="dot-hud-mm">400 mm to corneal plane</div>
-                </div>
-              </div>
-            </div>
-
-            <!-- RIGHT PANEL: DUAL-PANEL EYE TRACKING PIP HUD -->
+            <!-- CAMERA VIEW & DISTANCE -->
             <div class="dot-camera-card" id="dot-camera-pip">
               <div class="pip-header-desktop">
                 <div class="pip-title-col">
@@ -758,6 +725,15 @@
                 </div>
               </div>
 
+              <!-- Live carriage-to-eye distance -->
+              <div class="distance-readout-bar">
+                <div class="hud-digital-readout">
+                  <span class="hud-number" id="dot-hud-cm">40.0</span>
+                  <span class="hud-unit">cm</span>
+                </div>
+                <div class="hud-mm-sub" id="dot-hud-mm">400 mm to corneal plane</div>
+              </div>
+
               <!-- Camera Source: this device's own webcam, or a phone streaming over the local network -->
               <div class="pip-source-row">
                 <div class="camera-source-toggle">
@@ -769,6 +745,17 @@
                   <span id="remote-camera-status-text">Waiting for camera phone...</span>
                   <span class="remote-camera-url" id="remote-camera-url"></span>
                 </div>
+              </div>
+
+              <!-- Eye Under Test: only this eye is detected and followed by the tracker -->
+              <div class="pip-source-row">
+                <div class="camera-source-toggle">
+                  <span class="camera-source-label">Eye Under Test:</span>
+                  <button class="pip-btn camera-source-btn eye-select-btn" id="eye-select-od" onclick="app.setTestEye('OD')" title="Track the patient's right eye only">OD &bull; Right</button>
+                  <button class="pip-btn camera-source-btn eye-select-btn" id="eye-select-os" onclick="app.setTestEye('OS')" title="Track the patient's left eye only">OS &bull; Left</button>
+                  <button class="pip-btn camera-source-btn eye-select-btn" id="eye-select-ou" onclick="app.setTestEye('OU')" title="Track both eyes">OU &bull; Both</button>
+                </div>
+                <span class="tracker-mode-chip" id="tracker-mode-chip">Tracker: loading...</span>
               </div>
 
               <!-- DUAL VIEWPORT PANELS (LIVE MACRO + 3D MODEL) -->

@@ -92,6 +92,55 @@
       justify-content: center;
     }
 
+    /* Fixation target shown on the phone while streaming (camera runs hidden) */
+    #camera-hidden-video {
+      position: fixed;
+      width: 2px;
+      height: 2px;
+      opacity: 0.01;
+      pointer-events: none;
+      bottom: 0;
+      right: 0;
+    }
+
+    #target-screen {
+      display: none;
+      position: fixed;
+      inset: 0;
+      z-index: 500;
+      background: radial-gradient(circle at center, #FFFFFF 0%, #F5EDE0 100%);
+      align-items: center;
+      justify-content: center;
+    }
+
+    body.is-streaming #target-screen {
+      display: flex;
+    }
+
+    #target-screen .fixation-target-core {
+      width: 240px;
+      height: 240px;
+    }
+
+    #target-screen .target-ring.ring-3 { width: 230px; height: 230px; }
+    #target-screen .target-ring.ring-2 { width: 160px; height: 160px; }
+    #target-screen .target-ring.ring-1 { width: 90px; height: 90px; }
+    #target-screen .target-center-dot { width: 26px; height: 26px; }
+
+    .target-stop-btn {
+      position: absolute;
+      top: 14px;
+      right: 14px;
+      padding: 8px 14px;
+      border-radius: var(--radius-pill);
+      border: 1px solid rgba(74, 14, 23, 0.25);
+      background: rgba(255, 255, 255, 0.7);
+      color: var(--primary-maroon);
+      font-size: 12px;
+      font-weight: 700;
+      opacity: 0.55;
+    }
+
     .camera-page-note {
       max-width: 460px;
       text-align: center;
@@ -105,13 +154,11 @@
   <div class="camera-page-header">
     <img src="images/accuvis_logo.jpg" alt="Accu-Vis">
     <h1>ACCU-VIS &bull; Camera Phone</h1>
-    <p>Mount this phone on the stepper rail, pointed at the patient's eye.</p>
+    <p>Mount this phone on the stepper rail with the screen facing the patient. The screen shows only the fixation dot while the front camera watches the eye.</p>
   </div>
 
-  <div class="camera-preview-wrap">
-    <video id="camera-preview" autoplay playsinline muted></video>
-    <span class="camera-status-pill" id="camera-status-pill">Not Streaming</span>
-  </div>
+  <video id="camera-hidden-video" autoplay playsinline muted></video>
+  <div class="camera-status-pill" id="camera-status-pill" style="position:static; margin-bottom:16px;">Not Streaming</div>
 
   <div class="camera-controls-row">
     <button class="btn-maroon-pill-large" id="btn-toggle-stream" onclick="toggleStreaming()">
@@ -129,8 +176,18 @@
     Keep this page open on this phone. The controller device (tablet/laptop) will pick up this feed automatically once streaming starts.
   </p>
 
+  <div id="target-screen">
+    <button class="target-stop-btn" onclick="stopCameraStream()">Stop</button>
+    <div class="fixation-target-core">
+      <div class="target-ring ring-3"></div>
+      <div class="target-ring ring-2"></div>
+      <div class="target-ring ring-1"></div>
+      <div class="target-center-dot"></div>
+    </div>
+  </div>
+
   <script>
-    const video = document.getElementById('camera-preview');
+    const video = document.getElementById('camera-hidden-video');
     const statusPill = document.getElementById('camera-status-pill');
     const toggleBtn = document.getElementById('btn-toggle-stream');
     const noteEl = document.getElementById('camera-page-note');
@@ -141,7 +198,7 @@
     let streaming = false;
     let sendTimer = null;
     let framesSent = 0;
-    let facingMode = 'environment';
+    let facingMode = 'user'; // front camera: same side as the screen showing the dot
 
     function setStatus(text, live) {
       statusPill.textContent = text;
@@ -162,6 +219,10 @@
 
       streaming = true;
       framesSent = 0;
+      document.body.classList.add('is-streaming');
+      if (document.documentElement.requestFullscreen) {
+        document.documentElement.requestFullscreen().catch(() => {});
+      }
       toggleBtn.querySelector('span').textContent = 'Stop Streaming';
       setStatus('Streaming...', true);
 
@@ -171,6 +232,10 @@
 
     function stopCameraStream() {
       streaming = false;
+      document.body.classList.remove('is-streaming');
+      if (document.fullscreenElement && document.exitFullscreen) {
+        document.exitFullscreen().catch(() => {});
+      }
       if (sendTimer) {
         clearInterval(sendTimer);
         sendTimer = null;
@@ -214,7 +279,7 @@
     }
 
     async function switchFacingMode() {
-      facingMode = facingMode === 'environment' ? 'user' : 'environment';
+      facingMode = facingMode === 'user' ? 'environment' : 'user';
       if (streaming) {
         stopCameraStream();
         await startCameraStream();

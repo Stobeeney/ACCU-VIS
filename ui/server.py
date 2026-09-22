@@ -12,6 +12,9 @@ import sys
 import json
 import time
 import socket
+import ssl
+import threading
+import subprocess
 import webbrowser
 
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
@@ -31,6 +34,49 @@ PORT = 8080
 # design -- this never touches Vercel/production, only python3 server.py.
 LATEST_FRAME = {"data": None, "ts": 0.0}
 CAMERA_STALE_SECONDS = 3.0
+
+# Phone browsers only allow camera access on HTTPS (or localhost), so the
+# server also listens on HTTPS with a self-signed certificate for the LAN IP.
+HTTPS_PORT = 8443
+HTTPS_ACTIVE = {"port": None}
+CERT_DIR = os.path.join(DIRECTORY, "certs")
+
+class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
+    daemon_threads = True
+    allow_reuse_address = True
+
+def ensure_self_signed_cert(ip):
+    """Create (once per LAN IP) a self-signed cert; returns (cert, key) or None."""
+    os.makedirs(CERT_DIR, exist_ok=True)
+    cert = os.path.join(CERT_DIR, f"accuvis-{ip}.crt")
+    key = os.path.join(CERT_DIR, f"accuvis-{ip}.key")
+    if os.path.exists(cert) and os.path.exists(key):
+        return cert, key
+    try:
+        subprocess.run([
+            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            "-keyout", key, "-out", cert, "-days", "825",
+            "-subj", "/CN=Accu-Vis Local",
+            "-addext", f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:localhost"
+        ], check=True, capture_output=True)
+        return cert, key
+    except Exception as e:
+        print(f"Warning: could not create HTTPS certificate: {e}")
+        return None
+
+def start_https_server(handler, ip):
+    pair = ensure_self_signed_cert(ip)
+    if not pair:
+        return
+    try:
+        httpsd = ThreadedServer(("", HTTPS_PORT), handler)
+        ctx = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+        ctx.load_cert_chain(pair[0], pair[1])
+        httpsd.socket = ctx.wrap_socket(httpsd.socket, server_side=True)
+        HTTPS_ACTIVE["port"] = HTTPS_PORT
+        threading.Thread(target=httpsd.serve_forever, daemon=True).start()
+    except OSError as e:
+        print(f"Warning: HTTPS server could not start on port {HTTPS_PORT}: {e}")
 
 def get_lan_ip():
     """Best-effort LAN IP for display only; falls back to localhost."""
@@ -100,7 +146,9 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
             self.wfile.write(json.dumps({
                 "connected": connected,
                 "age_seconds": age,
-                "lan_url": f"http://{get_lan_ip()}:{self.server.server_address[1]}/camera.html"
+                "lan_url": (f"https://{get_lan_ip()}:{HTTPS_ACTIVE['port']}/camera.html"
+                            if HTTPS_ACTIVE["port"]
+                            else f"http://{get_lan_ip()}:{self.server.server_address[1]}/camera.html")
             }).encode('utf-8'))
             return
 
@@ -234,15 +282,13 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
 
 def run_server(port=PORT):
     handler = AccuVisHTTPHandler
-    socketserver.TCPServer.allow_reuse_address = True
-    
     current_port = port
     max_attempts = 10
     httpd = None
 
     for i in range(max_attempts):
         try:
-            httpd = socketserver.TCPServer(("", current_port), handler)
+            httpd = ThreadedServer(("", current_port), handler)
             break
         except OSError:
             current_port += 1
@@ -252,7 +298,10 @@ def run_server(port=PORT):
         sys.exit(1)
 
     url = f"http://localhost:{current_port}"
-    lan_url = f"http://{get_lan_ip()}:{current_port}"
+    lan_ip = get_lan_ip()
+    lan_url = f"http://{lan_ip}:{current_port}"
+    start_https_server(handler, lan_ip)
+    https_url = f"https://{lan_ip}:{HTTPS_ACTIVE['port']}" if HTTPS_ACTIVE["port"] else None
     print("=" * 64)
     print("   ACCU-VIS OPERATOR-ASSISTED CLINICAL UI SERVER")
     print("=" * 64)
@@ -260,10 +309,12 @@ def run_server(port=PORT):
     print(f" * Database directory: {os.path.join(DIRECTORY, 'database')}")
     print(f" * Server running at: {url}")
     print(f" * On your local network: {lan_url}")
-    print(f" * Camera phone page:     {lan_url}/camera.html")
-    print(" * Open the controller (dashboard) and the camera phone page")
-    print("   using the LAN address above -- both devices must be on the")
-    print("   same WiFi network.")
+    if https_url:
+        print(f" * Camera phone page (HTTPS, required for camera): {https_url}/camera.html")
+        print("   First visit shows a certificate warning: tap Advanced > Proceed.")
+    else:
+        print(f" * Camera phone page:     {lan_url}/camera.html")
+    print(" * Both devices must be on the same WiFi network.")
     print(" * Press Ctrl+C to terminate the server.")
     print("=" * 64)
 
