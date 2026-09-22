@@ -1669,6 +1669,41 @@ html.logged-out #view-login {
   display: none;
 }
 
+.webrtc-pairing-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.webrtc-pairing-row.hidden {
+  display: none;
+}
+
+.webrtc-code-input {
+  width: 100px;
+  padding: 6px 10px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--input-border);
+  background: var(--input-bg);
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 2px;
+  text-align: center;
+  color: var(--primary-maroon-dark);
+}
+
+.webrtc-status-text {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.webrtc-status-text.connected {
+  color: var(--accent-green);
+}
+
 .remote-camera-url {
   font-family: var(--font-mono);
   font-size: 10.5px;

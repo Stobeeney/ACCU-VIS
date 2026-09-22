@@ -15,7 +15,7 @@ two engines' SQL dialects differ (placeholders, autoincrement, migrations).
 import json
 import os
 import hashlib
-from datetime import datetime
+from datetime import datetime, timedelta
 
 DB_DIR = os.path.dirname(os.path.abspath(__file__))
 DB_FILE = os.path.join(DB_DIR, "accuvis_clinic.db")
@@ -105,6 +105,18 @@ def init_db():
         )
         """)
 
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS webrtc_signals (
+            id SERIAL PRIMARY KEY,
+            session_id TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            msg_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TIMESTAMP NOT NULL DEFAULT NOW()
+        )
+        """)
+        cursor.execute("CREATE INDEX IF NOT EXISTS idx_webrtc_session ON webrtc_signals (session_id, id)")
+
         # Postgres supports idempotent column migrations directly
         cursor.execute("ALTER TABLE patients ADD COLUMN IF NOT EXISTS birthdate TEXT")
         cursor.execute("ALTER TABLE clinical_logs ADD COLUMN IF NOT EXISTS test_type TEXT NOT NULL DEFAULT 'NPC'")
@@ -170,6 +182,17 @@ def init_db():
         user_cols = {row[1] for row in cursor.fetchall()}
         if "avatar" not in user_cols:
             cursor.execute("ALTER TABLE users ADD COLUMN avatar TEXT")
+
+        cursor.execute("""
+        CREATE TABLE IF NOT EXISTS webrtc_signals (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            session_id TEXT NOT NULL,
+            sender TEXT NOT NULL,
+            msg_type TEXT NOT NULL,
+            payload TEXT NOT NULL,
+            created_at TEXT NOT NULL
+        )
+        """)
 
     conn.commit()
 
@@ -486,6 +509,66 @@ def reset_password(email, new_password):
     conn.close()
     sync_to_json()
     return True
+
+# =========================================================================
+# WEBRTC SIGNALING (Phone Camera over the Internet, via Vercel + Postgres)
+# =========================================================================
+# Lightweight polling-based signaling relay: the camera phone and the
+# controller exchange an SDP offer/answer and ICE candidates by writing rows
+# tagged with a shared session_id (the 6-digit pairing code), then polling
+# for the other side's rows. Once connected, video flows peer-to-peer via
+# WebRTC -- this table only ever carries the small handshake messages.
+
+def start_signal_session(session_id):
+    """Clear any leftover signals from a previous session with the same code,
+    and opportunistically sweep old sessions so the table doesn't grow forever."""
+    if not session_id:
+        raise ValueError("session_id is required.")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(q("DELETE FROM webrtc_signals WHERE session_id = ?"), (session_id,))
+
+    if IS_POSTGRES:
+        cursor.execute("DELETE FROM webrtc_signals WHERE created_at < NOW() - INTERVAL '6 hours'")
+    else:
+        cutoff = (datetime.now() - timedelta(hours=6)).strftime("%Y-%m-%d %H:%M:%S")
+        cursor.execute(q("DELETE FROM webrtc_signals WHERE created_at < ?"), (cutoff,))
+
+    conn.commit()
+    conn.close()
+
+def create_signal(session_id, sender, msg_type, payload):
+    if not session_id or sender not in ("camera", "controller") or not msg_type or not payload:
+        raise ValueError("session_id, a valid sender ('camera'/'controller'), msg_type, and payload are required.")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    now = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    cursor.execute(q("""
+    INSERT INTO webrtc_signals (session_id, sender, msg_type, payload, created_at)
+    VALUES (?, ?, ?, ?, ?)
+    """), (session_id, sender, msg_type, payload, now))
+    conn.commit()
+    conn.close()
+    return True
+
+def get_signals(session_id, since_id, exclude_sender):
+    """Signals for a session, newer than since_id, from the OTHER side only
+    (exclude_sender is whichever side is polling, so it never sees its own messages)."""
+    if not session_id:
+        raise ValueError("session_id is required.")
+
+    conn = get_connection()
+    cursor = conn.cursor()
+    cursor.execute(q("""
+    SELECT id, sender, msg_type, payload FROM webrtc_signals
+    WHERE session_id = ? AND id > ? AND sender != ?
+    ORDER BY id ASC
+    """), (session_id, int(since_id or 0), exclude_sender))
+    rows = [dict(row) for row in cursor.fetchall()]
+    conn.close()
+    return rows
 
 # Initialize on import
 init_db()

@@ -79,12 +79,21 @@ class AccuVisApp {
     // the local network (see camera.html); this device polls and re-injects
     // them into the same <video> the local-webcam eye tracker already reads.
     this.remoteCameraState = {
-      mode: 'local', // 'local' or 'remote'
+      mode: 'local', // 'local', 'remote' (same WiFi), or 'webrtc' (internet)
       canvas: null,
       ctx: null,
       pollTimer: null,
       statusTimer: null,
       streamAttached: false
+    };
+
+    // "Phone Camera (Internet)" source: real peer-to-peer WebRTC video from a
+    // phone on any network, paired via a 6-digit code relayed through the
+    // database (see webrtc-signaling.js + camera.html).
+    this.webrtcCameraState = {
+      pc: null,
+      signaling: null,
+      connected: false
     };
 
     // Saved Patient Records (localStorage backed)
@@ -202,6 +211,7 @@ class AccuVisApp {
         this.eyeTracker.stop();
       }
       this.stopRemoteCameraFeed();
+      this.disconnectWebRTCCamera();
     }
   }
 
@@ -1933,18 +1943,24 @@ class AccuVisApp {
     this.syncEyeSelectorUI();
     if (this.eyeTracker) this.updateTrackerStatus(this.eyeTracker.mode);
 
+    const sourceMode = this.remoteCameraState.mode;
     const localBtn = document.getElementById('camera-source-local');
     const remoteBtn = document.getElementById('camera-source-remote');
-    const isRemote = this.remoteCameraState.mode === 'remote';
-    if (localBtn) localBtn.classList.toggle('active', !isRemote);
-    if (remoteBtn) remoteBtn.classList.toggle('active', isRemote);
+    const webrtcBtn = document.getElementById('camera-source-webrtc');
+    if (localBtn) localBtn.classList.toggle('active', sourceMode === 'local');
+    if (remoteBtn) remoteBtn.classList.toggle('active', sourceMode === 'remote');
+    if (webrtcBtn) webrtcBtn.classList.toggle('active', sourceMode === 'webrtc');
     const banner = document.getElementById('remote-camera-banner');
-    if (banner) banner.classList.toggle('hidden', !isRemote);
+    if (banner) banner.classList.toggle('hidden', sourceMode !== 'remote');
+    const pairingRow = document.getElementById('webrtc-pairing-row');
+    if (pairingRow) pairingRow.classList.toggle('hidden', sourceMode !== 'webrtc');
 
-    // Resume whichever camera source was active (local webcam or remote phone)
-    if (isRemote) {
+    // Resume whichever camera source was active (local webcam or same-WiFi phone).
+    // WebRTC (internet) connections are torn down when leaving this view, so the
+    // operator just needs to press Connect again -- the pairing panel stays visible.
+    if (sourceMode === 'remote') {
       this.startRemoteCameraFeed();
-    } else {
+    } else if (sourceMode !== 'webrtc') {
       this.startCameraFeed();
     }
   }
@@ -2036,21 +2052,33 @@ class AccuVisApp {
 
   setCameraSource(mode) {
     if (mode === this.remoteCameraState.mode) return;
+    const previousMode = this.remoteCameraState.mode;
     this.remoteCameraState.mode = mode;
 
     const localBtn = document.getElementById('camera-source-local');
     const remoteBtn = document.getElementById('camera-source-remote');
+    const webrtcBtn = document.getElementById('camera-source-webrtc');
     if (localBtn) localBtn.classList.toggle('active', mode === 'local');
     if (remoteBtn) remoteBtn.classList.toggle('active', mode === 'remote');
+    if (webrtcBtn) webrtcBtn.classList.toggle('active', mode === 'webrtc');
 
     const banner = document.getElementById('remote-camera-banner');
     if (banner) banner.classList.toggle('hidden', mode !== 'remote');
 
+    const pairingRow = document.getElementById('webrtc-pairing-row');
+    if (pairingRow) pairingRow.classList.toggle('hidden', mode !== 'webrtc');
+
+    // Leaving 'remote' or 'webrtc' should tear down that source's connection
+    if (previousMode === 'remote') this.stopRemoteCameraFeed();
+    if (previousMode === 'webrtc') this.disconnectWebRTCCamera();
+
     if (mode === 'remote') {
       if (this.eyeTracker) this.eyeTracker.stop();
       this.startRemoteCameraFeed();
+    } else if (mode === 'webrtc') {
+      if (this.eyeTracker) this.eyeTracker.stop();
+      // Waits for the operator to type the code and press Connect
     } else {
-      this.stopRemoteCameraFeed();
       this.startCameraFeed();
     }
   }
@@ -2135,6 +2163,80 @@ class AccuVisApp {
     } catch (e) {
       if (statusText) statusText.textContent = 'Camera relay unavailable (local network only)';
       if (banner) banner.classList.remove('connected');
+    }
+  }
+
+  connectWebRTCCamera() {
+    const input = document.getElementById('webrtc-code-input');
+    const statusText = document.getElementById('webrtc-status-text');
+    const code = (input && input.value || '').trim();
+
+    if (!/^\d{6}$/.test(code)) {
+      if (statusText) { statusText.textContent = 'Enter the 6-digit code shown on the camera phone'; statusText.classList.remove('connected'); }
+      return;
+    }
+
+    this.disconnectWebRTCCamera(); // clear any previous attempt
+    const state = this.webrtcCameraState;
+
+    if (statusText) { statusText.textContent = `Connecting to ${code}...`; statusText.classList.remove('connected'); }
+
+    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const signaling = new AccuVisSignaling(code, 'controller');
+    state.pc = pc;
+    state.signaling = signaling;
+    state.connected = false;
+
+    pc.ontrack = (e) => {
+      if (!this.eyeTracker || !this.eyeTracker.video) return;
+      this.eyeTracker.video.srcObject = e.streams[0];
+      this.eyeTracker.video.muted = true;
+      this.eyeTracker.video.playsInline = true;
+      this.eyeTracker.video.play().catch(() => {});
+      this.eyeTracker.recenterEyeCrop();
+      this.eyeTracker.startProcessingLoop();
+      state.connected = true;
+      if (statusText) { statusText.textContent = 'Camera phone connected'; statusText.classList.add('connected'); }
+    };
+
+    pc.onicecandidate = (e) => { if (e.candidate) signaling.send('ice', e.candidate); };
+
+    pc.onconnectionstatechange = () => {
+      if (!statusText) return;
+      if (pc.connectionState === 'connected') {
+        statusText.textContent = 'Camera phone connected';
+        statusText.classList.add('connected');
+      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
+        statusText.textContent = 'Connection lost. Re-enter the code to reconnect.';
+        statusText.classList.remove('connected');
+        state.connected = false;
+      }
+    };
+
+    let answered = false;
+    signaling.startPolling(async (type, payload) => {
+      if (type === 'offer' && !answered) {
+        answered = true;
+        await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        const answer = await pc.createAnswer();
+        await pc.setLocalDescription(answer);
+        await signaling.send('answer', answer);
+      } else if (type === 'ice') {
+        try { await pc.addIceCandidate(payload); } catch (e) { /* ignore late/duplicate candidates */ }
+      }
+    });
+  }
+
+  disconnectWebRTCCamera() {
+    const state = this.webrtcCameraState;
+    if (state.signaling) { state.signaling.stopPolling(); state.signaling = null; }
+    if (state.pc) { state.pc.close(); state.pc = null; }
+    state.connected = false;
+
+    if (this.eyeTracker && this.eyeTracker.video && this.eyeTracker.video.srcObject) {
+      const stream = this.eyeTracker.video.srcObject;
+      if (stream.getTracks) stream.getTracks().forEach(t => t.stop());
+      this.eyeTracker.video.srcObject = null;
     }
   }
 

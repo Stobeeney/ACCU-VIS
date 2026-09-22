@@ -16,6 +16,7 @@ import ssl
 import threading
 import subprocess
 import webbrowser
+from urllib.parse import urlparse, parse_qs
 
 DIRECTORY = os.path.dirname(os.path.abspath(__file__))
 sys.path.insert(0, os.path.join(DIRECTORY, "database"))
@@ -127,6 +128,24 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
             users = db_manager.get_all_users() if db_manager else []
             self.wfile.write(json.dumps(users).encode('utf-8'))
             return
+        elif self.path.startswith('/api/webrtc/signal'):
+            q = parse_qs(urlparse(self.path).query)
+            try:
+                rows = db_manager.get_signals(
+                    q.get('session_id', [None])[0],
+                    q.get('since', [0])[0],
+                    q.get('exclude', [None])[0]
+                ) if db_manager else []
+                self.send_response(200)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps(rows).encode('utf-8'))
+            except ValueError as e:
+                self.send_response(400)
+                self.send_header('Content-Type', 'application/json')
+                self.end_headers()
+                self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            return
         elif self.path.startswith('/api/camera/frame'):
             if LATEST_FRAME["data"] is None:
                 self.send_response(404)
@@ -174,7 +193,44 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
 
-        if self.path == '/api/patients':
+        if self.path == '/api/webrtc/start':
+            if db_manager:
+                try:
+                    db_manager.start_signal_session(payload.get("session_id"))
+                    self.send_response(200)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except ValueError as e:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(500)
+                self.end_headers()
+            return
+        elif self.path == '/api/webrtc/signal':
+            if db_manager:
+                try:
+                    db_manager.create_signal(
+                        payload.get("session_id"), payload.get("sender"),
+                        payload.get("msg_type"), payload.get("payload")
+                    )
+                    self.send_response(201)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "success"}).encode('utf-8'))
+                except ValueError as e:
+                    self.send_response(400)
+                    self.send_header('Content-Type', 'application/json')
+                    self.end_headers()
+                    self.wfile.write(json.dumps({"status": "error", "message": str(e)}).encode('utf-8'))
+            else:
+                self.send_response(500)
+                self.end_headers()
+            return
+        elif self.path == '/api/patients':
             if db_manager:
                 patient = db_manager.create_patient(payload)
                 self.send_response(201)

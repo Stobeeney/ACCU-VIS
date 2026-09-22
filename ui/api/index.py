@@ -106,6 +106,46 @@ def auth_reset_password():
         return jsonify({"status": "error", "message": str(e)}), 400
 
 
+@app.route('/api/webrtc/start', methods=['POST'])
+def webrtc_start():
+    """Reset (or freshly create) a pairing session before the camera phone
+    posts its offer. Called by whichever side starts first."""
+    payload = request.get_json(silent=True) or {}
+    try:
+        db_manager.start_signal_session(payload.get("session_id"))
+        return jsonify({"status": "success"}), 200
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route('/api/webrtc/signal', methods=['POST'])
+def webrtc_signal():
+    payload = request.get_json(silent=True) or {}
+    try:
+        db_manager.create_signal(
+            payload.get("session_id"),
+            payload.get("sender"),
+            payload.get("msg_type"),
+            payload.get("payload")
+        )
+        return jsonify({"status": "success"}), 201
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route('/api/webrtc/signal', methods=['GET'])
+def webrtc_poll():
+    try:
+        rows = db_manager.get_signals(
+            request.args.get("session_id"),
+            request.args.get("since", 0),
+            request.args.get("exclude")
+        )
+        return jsonify(rows), 200
+    except ValueError as e:
+        return jsonify({"status": "error", "message": str(e)}), 400
+
+
 @app.errorhandler(404)
 def not_found(e):
     return jsonify({"status": "error", "message": "Not found."}), 404

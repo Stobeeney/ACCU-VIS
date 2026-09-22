@@ -734,16 +734,22 @@
                 <div class="hud-mm-sub" id="dot-hud-mm">400 mm to corneal plane</div>
               </div>
 
-              <!-- Camera Source: this device's own webcam, or a phone streaming over the local network -->
+              <!-- Camera Source: this device's own webcam, or a phone streaming over WiFi or the internet -->
               <div class="pip-source-row">
                 <div class="camera-source-toggle">
                   <span class="camera-source-label">Camera Source:</span>
                   <button class="pip-btn camera-source-btn active" id="camera-source-local" onclick="app.setCameraSource('local')">This Device</button>
-                  <button class="pip-btn camera-source-btn" id="camera-source-remote" onclick="app.setCameraSource('remote')">Phone Camera</button>
+                  <button class="pip-btn camera-source-btn" id="camera-source-remote" onclick="app.setCameraSource('remote')">Phone Camera (WiFi)</button>
+                  <button class="pip-btn camera-source-btn" id="camera-source-webrtc" onclick="app.setCameraSource('webrtc')">Phone Camera (Internet)</button>
                 </div>
                 <div class="remote-camera-banner hidden" id="remote-camera-banner">
                   <span id="remote-camera-status-text">Waiting for camera phone...</span>
                   <span class="remote-camera-url" id="remote-camera-url"></span>
+                </div>
+                <div class="webrtc-pairing-row hidden" id="webrtc-pairing-row">
+                  <input type="text" id="webrtc-code-input" class="webrtc-code-input" placeholder="6-digit code" maxlength="6" inputmode="numeric">
+                  <button class="pip-btn camera-source-btn" onclick="app.connectWebRTCCamera()">Connect</button>
+                  <span id="webrtc-status-text" class="webrtc-status-text">Enter the code shown on the camera phone</span>
                 </div>
               </div>
 
@@ -1309,6 +1315,7 @@
 
   <!-- SCRIPTS -->
   <script src="eye_tracker.js"></script>
+  <script src="webrtc-signaling.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

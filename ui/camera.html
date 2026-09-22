@@ -148,6 +148,74 @@
       color: rgba(255, 255, 255, 0.65);
       line-height: 1.5;
     }
+
+    .camera-mode-row {
+      display: flex;
+      gap: 8px;
+      width: 100%;
+      max-width: 460px;
+      margin-bottom: 14px;
+    }
+
+    .camera-mode-btn {
+      flex: 1;
+      padding: 10px;
+      border-radius: var(--radius-md);
+      border: 1.5px solid rgba(255, 255, 255, 0.25);
+      background: rgba(255, 255, 255, 0.08);
+      color: rgba(255, 255, 255, 0.85);
+      font-size: 12.5px;
+      font-weight: 700;
+    }
+
+    .camera-mode-btn.active {
+      background: #FFFFFF;
+      color: var(--primary-maroon-dark);
+      border-color: #FFFFFF;
+    }
+
+    .pairing-code-box {
+      display: none;
+      width: 100%;
+      max-width: 460px;
+      text-align: center;
+      background: rgba(255, 255, 255, 0.08);
+      border: 1px solid rgba(255, 255, 255, 0.2);
+      border-radius: var(--radius-lg);
+      padding: 14px;
+      margin-bottom: 14px;
+    }
+
+    .pairing-code-box.visible {
+      display: block;
+    }
+
+    .pairing-code-box .code-label {
+      font-size: 11px;
+      color: rgba(255, 255, 255, 0.65);
+      font-weight: 700;
+      letter-spacing: 0.5px;
+    }
+
+    .pairing-code-box .code-value {
+      font-family: var(--font-mono);
+      font-size: 40px;
+      font-weight: 800;
+      color: #FFFFFF;
+      letter-spacing: 6px;
+      margin-top: 4px;
+    }
+
+    #target-screen .pairing-code-overlay {
+      position: absolute;
+      bottom: 24px;
+      font-family: var(--font-mono);
+      font-size: 13px;
+      font-weight: 700;
+      color: var(--primary-maroon);
+      opacity: 0.6;
+      letter-spacing: 3px;
+    }
   </style>
 </head>
 <body>
@@ -158,6 +226,17 @@
   </div>
 
   <video id="camera-hidden-video" autoplay playsinline muted></video>
+
+  <div class="camera-mode-row">
+    <button class="camera-mode-btn active" id="mode-btn-wifi" onclick="setStreamMode('wifi')">Same WiFi</button>
+    <button class="camera-mode-btn" id="mode-btn-internet" onclick="setStreamMode('internet')">Internet (Anywhere)</button>
+  </div>
+
+  <div class="pairing-code-box" id="pairing-code-box">
+    <div class="code-label">CONTROLLER PAIRING CODE</div>
+    <div class="code-value" id="pairing-code-value">------</div>
+  </div>
+
   <div class="camera-status-pill" id="camera-status-pill" style="position:static; margin-bottom:16px;">Not Streaming</div>
 
   <div class="camera-controls-row">
@@ -184,8 +263,10 @@
       <div class="target-ring ring-1"></div>
       <div class="target-center-dot"></div>
     </div>
+    <div class="pairing-code-overlay" id="target-screen-code" style="display:none;"></div>
   </div>
 
+  <script src="webrtc-signaling.js"></script>
   <script>
     const video = document.getElementById('camera-hidden-video');
     const statusPill = document.getElementById('camera-status-pill');
@@ -199,13 +280,30 @@
     let sendTimer = null;
     let framesSent = 0;
     let facingMode = 'user'; // front camera: same side as the screen showing the dot
+    let streamMode = 'wifi'; // 'wifi' (local HTTP relay) or 'internet' (WebRTC)
+
+    // WebRTC (Internet mode) state
+    let pc = null;
+    let signaling = null;
+    let sessionCode = null;
 
     function setStatus(text, live) {
       statusPill.textContent = text;
       statusPill.classList.toggle('live', !!live);
     }
 
-    async function startCameraStream() {
+    function setStreamMode(mode) {
+      if (streaming) return; // don't allow switching mid-stream
+      streamMode = mode;
+      document.getElementById('mode-btn-wifi').classList.toggle('active', mode === 'wifi');
+      document.getElementById('mode-btn-internet').classList.toggle('active', mode === 'internet');
+      document.getElementById('pairing-code-box').classList.toggle('visible', mode === 'internet');
+      noteEl.textContent = mode === 'wifi'
+        ? 'Keep this page open on this phone. The controller device (tablet/laptop) will pick up this feed automatically once streaming starts, as long as both devices are on the same WiFi network.'
+        : 'Keep this page open on this phone. On the controller, choose "Phone Camera (Internet)" and type in the pairing code shown here once you start streaming. Works from any network.';
+    }
+
+    async function openCamera() {
       const constraints = {
         video: { facingMode: { ideal: facingMode }, width: { ideal: 640 }, height: { ideal: 480 } },
         audio: false
@@ -213,9 +311,13 @@
       const stream = await navigator.mediaDevices.getUserMedia(constraints);
       video.srcObject = stream;
       await video.play();
-
       canvas.width = video.videoWidth || 640;
       canvas.height = video.videoHeight || 480;
+      return stream;
+    }
+
+    async function startCameraStream() {
+      const stream = await openCamera();
 
       streaming = true;
       framesSent = 0;
@@ -226,8 +328,12 @@
       toggleBtn.querySelector('span').textContent = 'Stop Streaming';
       setStatus('Streaming...', true);
 
-      if (sendTimer) clearInterval(sendTimer);
-      sendTimer = setInterval(sendFrame, 150); // ~6-7 fps, plenty for positioning checks
+      if (streamMode === 'internet') {
+        await startWebRTCSender(stream);
+      } else {
+        if (sendTimer) clearInterval(sendTimer);
+        sendTimer = setInterval(sendFrame, 150); // ~6-7 fps, plenty for positioning checks
+      }
     }
 
     function stopCameraStream() {
@@ -240,12 +346,14 @@
         clearInterval(sendTimer);
         sendTimer = null;
       }
+      stopWebRTCSender();
       if (video.srcObject) {
         video.srcObject.getTracks().forEach(t => t.stop());
         video.srcObject = null;
       }
       toggleBtn.querySelector('span').textContent = 'Start Streaming →';
       setStatus('Not Streaming', false);
+      document.getElementById('target-screen-code').style.display = 'none';
     }
 
     function sendFrame() {
@@ -264,6 +372,50 @@
           setStatus('Connection lost — retrying...', false);
         });
       }, 'image/jpeg', 0.7);
+    }
+
+    function genPairingCode() {
+      return String(Math.floor(100000 + Math.random() * 900000));
+    }
+
+    async function startWebRTCSender(stream) {
+      sessionCode = genPairingCode();
+      document.getElementById('pairing-code-value').textContent = sessionCode;
+      const codeOverlay = document.getElementById('target-screen-code');
+      codeOverlay.textContent = 'CODE: ' + sessionCode;
+      codeOverlay.style.display = 'block';
+
+      signaling = new AccuVisSignaling(sessionCode, 'camera');
+      await signaling.start();
+
+      pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+      stream.getTracks().forEach(track => pc.addTrack(track, stream));
+      pc.onicecandidate = (e) => { if (e.candidate) signaling.send('ice', e.candidate); };
+      pc.onconnectionstatechange = () => {
+        if (pc.connectionState === 'connected') setStatus('Streaming... (controller connected)', true);
+        else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') setStatus('Waiting for controller to reconnect...', false);
+      };
+
+      const offer = await pc.createOffer();
+      await pc.setLocalDescription(offer);
+      await signaling.send('offer', offer);
+
+      setStatus(`Waiting for controller (code ${sessionCode})...`, false);
+
+      signaling.startPolling(async (type, payload) => {
+        if (!pc) return;
+        if (type === 'answer' && !pc.currentRemoteDescription) {
+          await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        } else if (type === 'ice') {
+          try { await pc.addIceCandidate(payload); } catch (e) { /* ignore late/duplicate candidates */ }
+        }
+      });
+    }
+
+    function stopWebRTCSender() {
+      if (signaling) { signaling.stopPolling(); signaling = null; }
+      if (pc) { pc.close(); pc = null; }
+      sessionCode = null;
     }
 
     function toggleStreaming() {
