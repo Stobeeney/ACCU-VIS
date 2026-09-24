@@ -2449,6 +2449,35 @@ html.logged-out #view-login {
   color: var(--accent-red);
 }
 
+/* Rail Hardware Connection Status (ESP8266 real motor integration) */
+.rail-hw-status {
+  display: inline-block;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.rail-hw-status.idle {
+  background: rgba(107, 114, 128, 0.15);
+  color: #6B7280;
+}
+
+.rail-hw-status.ok {
+  background: rgba(45, 138, 78, 0.15);
+  color: var(--accent-green);
+}
+
+.rail-hw-status.warn {
+  background: rgba(229, 169, 60, 0.18);
+  color: #A66A0A;
+}
+
+.rail-hw-status.error {
+  background: rgba(201, 42, 42, 0.14);
+  color: var(--accent-red);
+}
+
 .btn-close-circle {
   width: 32px;
   height: 32px;

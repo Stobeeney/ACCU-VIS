@@ -855,6 +855,15 @@
                   <input type="checkbox" id="chk-auto-stop" checked onchange="app.toggleAutoStop(this.checked)">
                   <span>Auto-Stop on Convergence Break</span>
                 </label>
+
+                <label class="auto-stop-label">
+                  <input type="checkbox" id="chk-rail-hardware" onchange="app.toggleRailHardware(this.checked)">
+                  <span>Use Real Hardware (ESP8266 Rail)</span>
+                </label>
+                <input type="text" id="rail-hardware-url" class="form-pill-input" value="https://192.168.4.1"
+                  onchange="app.setRailHardwareUrl(this.value)" placeholder="https://192.168.4.1" style="width: 160px;">
+                <button class="btn-stepper-reset" onclick="app.calibrateRailHardware()">Calibrate Rail</button>
+                <span id="rail-hardware-status" class="rail-hw-status idle">Simulation mode</span>
               </div>
             </div>
           </div>

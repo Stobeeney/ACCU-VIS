@@ -75,6 +75,18 @@ class AccuVisApp {
     };
     this.eyeTracker = null;
 
+    // Real ESP8266 + A4988 + NEMA17 rail hardware (Access Point mode,
+    // HTTPS self-signed cert -- see firmware/esp8266-stepper). When
+    // enabled, jog/approach/home commands are sent to the real motor
+    // instead of only animating dotState.railDistanceCm in pure JS.
+    this.railHardware = {
+      enabled: false,
+      baseUrl: "https://192.168.4.1",
+      connected: false,
+      calibrated: false,
+      pollTimer: null
+    };
+
     // Remote "Phone Camera" source: another phone streams JPEG frames over
     // the local network (see camera.html); this device polls and re-injects
     // them into the same <video> the local-webcam eye tracker already reads.
@@ -1615,6 +1627,122 @@ class AccuVisApp {
     }
   }
 
+  // ---------------------------------------------------------------------
+  // Real rail hardware (ESP8266 + A4988 + NEMA17), reached directly at its
+  // local HTTPS IP (cross-origin, not through this app's own /api/*
+  // backend -- the ESP8266 has its own web server). Requires the phone/
+  // tablet to be connected to the AccuVis-Rail WiFi and to have already
+  // accepted the device's self-signed cert once (visit its https:// URL
+  // directly in a browser tab first).
+  // ---------------------------------------------------------------------
+
+  async railApiCall(path, params = {}) {
+    if (!this.railHardware.enabled) return null;
+    const qs = Object.keys(params).length
+      ? "?" + new URLSearchParams(params).toString()
+      : "";
+    const method = path === "/status" ? "GET" : "POST";
+    try {
+      const res = await fetch(`${this.railHardware.baseUrl}${path}${qs}`, { method });
+      const data = await res.json();
+      this.railHardware.connected = true;
+      if (typeof data.calibrated === "boolean") {
+        this.railHardware.calibrated = data.calibrated;
+      }
+      this.updateRailHardwareStatusUI();
+      return data;
+    } catch (e) {
+      this.railHardware.connected = false;
+      this.updateRailHardwareStatusUI();
+      return null;
+    }
+  }
+
+  toggleRailHardware(enabled) {
+    this.railHardware.enabled = enabled;
+    if (enabled) {
+      this.railApiCall("/status");
+    } else {
+      this.railHardware.connected = false;
+      this.updateRailHardwareStatusUI();
+    }
+  }
+
+  setRailHardwareUrl(url) {
+    this.railHardware.baseUrl = url.trim().replace(/\/+$/, "");
+  }
+
+  async calibrateRailHardware() {
+    const data = await this.railApiCall("/calibrate");
+    if (data && data.ok) {
+      this.dotState.railDistanceCm = 40.0;
+      this.updateDotHUD();
+      this.playTone(523.25, "triangle", 0.15, 0);
+    }
+    return data;
+  }
+
+  updateRailHardwareStatusUI() {
+    const el = document.getElementById("rail-hardware-status");
+    if (!el) return;
+    if (!this.railHardware.enabled) {
+      el.textContent = "Simulation mode";
+      el.className = "rail-hw-status idle";
+    } else if (!this.railHardware.connected) {
+      el.textContent = "Not connected -- check WiFi/cert";
+      el.className = "rail-hw-status error";
+    } else if (!this.railHardware.calibrated) {
+      el.textContent = "Connected -- not calibrated yet";
+      el.className = "rail-hw-status warn";
+    } else {
+      el.textContent = "Connected & calibrated";
+      el.className = "rail-hw-status ok";
+    }
+  }
+
+  async startHardwareApproach() {
+    const targetCm = this.dotState.autoStop ? this.dotState.breakDistanceCm : 4.0;
+    const moveResp = await this.railApiCall("/move", { distance_cm: targetCm });
+    if (!moveResp || !moveResp.ok) {
+      this.dotState.isApproaching = false;
+      const pillText = document.getElementById("dot-motor-status-text");
+      if (pillText) {
+        pillText.textContent = moveResp && moveResp.error === "Not calibrated yet -- call /calibrate first"
+          ? "Rail not calibrated -- calibrate first"
+          : "Rail hardware unavailable -- check connection";
+      }
+      const pill = document.getElementById("dot-motor-status-pill");
+      if (pill) pill.className = "dot-status-pill idle";
+      return;
+    }
+
+    const poll = async () => {
+      if (!this.dotState.isApproaching) return;
+      const status = await this.railApiCall("/status");
+      if (status && status.ok) {
+        this.dotState.railDistanceCm = status.distance_cm;
+        this.updateDotHUD();
+        if (this.eyeTracker) {
+          this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
+        }
+
+        if (this.dotState.autoStop && this.dotState.railDistanceCm <= this.dotState.breakDistanceCm + 0.05) {
+          this.stopAndLockMeasurement(`Auto-Stop (Convergence Break at ${this.dotState.breakDistanceCm.toFixed(1)} cm)`);
+          return;
+        }
+        if (this.dotState.railDistanceCm <= 4.05) {
+          this.stopAndLockMeasurement("Rail Limit Reached (4.0 cm)");
+          return;
+        }
+        if (!status.moving) {
+          return; // reached the requested target without hitting a stop threshold
+        }
+      }
+      this.railHardware.pollTimer = setTimeout(poll, 200);
+    };
+    poll();
+  }
+
   startStepperApproach() {
     // If carriage is already at minimum distance, reset to 40cm first
     if (this.dotState.railDistanceCm <= 4.5) {
@@ -1641,6 +1769,15 @@ class AccuVisApp {
     // Cancel any existing frame loop
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
+    }
+    if (this.railHardware.pollTimer) {
+      clearTimeout(this.railHardware.pollTimer);
+      this.railHardware.pollTimer = null;
+    }
+
+    if (this.railHardware.enabled) {
+      this.startHardwareApproach();
+      return;
     }
 
     const step = (now) => {
@@ -1686,6 +1823,13 @@ class AccuVisApp {
       cancelAnimationFrame(this.dotState.animationFrameId);
       this.dotState.animationFrameId = null;
     }
+    if (this.railHardware.pollTimer) {
+      clearTimeout(this.railHardware.pollTimer);
+      this.railHardware.pollTimer = null;
+    }
+    if (this.railHardware.enabled) {
+      this.railApiCall('/stop');
+    }
 
     const pill = document.getElementById('dot-motor-status-pill');
     const pillText = document.getElementById('dot-motor-status-text');
@@ -1702,6 +1846,13 @@ class AccuVisApp {
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
       this.dotState.animationFrameId = null;
+    }
+    if (this.railHardware.pollTimer) {
+      clearTimeout(this.railHardware.pollTimer);
+      this.railHardware.pollTimer = null;
+    }
+    if (this.railHardware.enabled) {
+      this.railApiCall('/stop');
     }
 
     const recordedCm = parseFloat(this.dotState.railDistanceCm.toFixed(1));
@@ -1788,6 +1939,13 @@ class AccuVisApp {
       cancelAnimationFrame(this.dotState.animationFrameId);
       this.dotState.animationFrameId = null;
     }
+    if (this.railHardware.pollTimer) {
+      clearTimeout(this.railHardware.pollTimer);
+      this.railHardware.pollTimer = null;
+    }
+    if (this.railHardware.enabled) {
+      this.railApiCall('/home');
+    }
 
     this.dotState.railDistanceCm = 40.0;
     this.dotState.convergenceLocked = false;
@@ -1820,6 +1978,23 @@ class AccuVisApp {
 
   jogRailMicro(deltaCm) {
     if (this.dotState.isApproaching) this.pauseStepperApproach();
+
+    if (this.railHardware.enabled) {
+      // ESP8266 /jog delta_cm convention is inverted vs. this app's
+      // deltaCm (positive here = farther; positive delta_cm on the
+      // device = closer), so negate when translating.
+      this.railApiCall('/jog', { delta_cm: -deltaCm }).then(data => {
+        if (data && data.ok && typeof data.target_cm === 'number') {
+          this.dotState.railDistanceCm = data.target_cm;
+          this.updateDotHUD();
+          if (this.eyeTracker) {
+            this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
+          }
+        }
+      });
+      return;
+    }
+
     this.dotState.railDistanceCm = Math.max(3.0, Math.min(40.0, this.dotState.railDistanceCm + deltaCm));
     this.updateDotHUD();
     if (this.eyeTracker) {
