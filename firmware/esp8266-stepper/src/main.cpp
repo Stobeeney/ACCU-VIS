@@ -76,8 +76,8 @@ void handleStatus() {
   String json = "{";
   json += "\"ok\":true,";
   json += "\"uptime_ms\":" + String(millis()) + ",";
-  json += "\"ip\":\"" + WiFi.localIP().toString() + "\",";
-  json += "\"rssi_dbm\":" + String(WiFi.RSSI()) + ",";
+  json += "\"ip\":\"" + WiFi.softAPIP().toString() + "\",";
+  json += "\"connected_devices\":" + String(WiFi.softAPgetStationNum()) + ",";
   json += "\"calibrated\":" + String(calibrated ? "true" : "false") + ",";
   json += "\"distance_cm\":" + String(distanceCm, 2) + ",";
   json += "\"moving\":" + String(stepper.isRunning() ? "true" : "false");
@@ -139,35 +139,21 @@ void handleNotFound() {
 }
 
 // ---------------------------------------------------------------------
-// WiFi
+// WiFi (Access Point mode -- the ESP8266 broadcasts its OWN network;
+// phones/tablets connect directly to it, no router needed)
 // ---------------------------------------------------------------------
 
-void connectWiFi() {
-  WiFi.mode(WIFI_STA);
-  WiFi.hostname(DEVICE_HOSTNAME);
-  WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(WIFI_SSID);
-
-  uint32_t startAttempt = millis();
-  while (WiFi.status() != WL_CONNECTED) {
-    digitalWrite(LED_BUILTIN, !digitalRead(LED_BUILTIN)); // blink while connecting
-    delay(300);
-    Serial.print(".");
-    if (millis() - startAttempt > 20000) {
-      Serial.println("\nWiFi connect timed out, retrying...");
-      WiFi.disconnect();
-      delay(500);
-      WiFi.begin(WIFI_SSID, WIFI_PASSWORD);
-      startAttempt = millis();
-    }
-  }
-
+void startAccessPoint() {
+  WiFi.mode(WIFI_AP);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
   digitalWrite(LED_BUILTIN, HIGH); // off (NodeMCU LED is active-low)
-  Serial.println("\nWiFi connected.");
-  Serial.print("IP address: http://");
-  Serial.println(WiFi.localIP());
+  Serial.println("Access Point started.");
+  Serial.print("SSID: ");
+  Serial.println(AP_SSID);
+  Serial.print("Password: ");
+  Serial.println(AP_PASSWORD);
+  Serial.print("Connect your phone to that WiFi, then open: http://");
+  Serial.println(WiFi.softAPIP());
 }
 
 // ---------------------------------------------------------------------
@@ -215,7 +201,7 @@ void setup() {
   }
   Serial.println("Boot self-test done.");
 
-  connectWiFi();
+  startAccessPoint();
 
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/calibrate", HTTP_POST, handleCalibrate);
@@ -233,12 +219,4 @@ void setup() {
 void loop() {
   server.handleClient();
   stepper.run(); // must be called as often as possible for smooth, non-blocking motion
-
-  // Reconnect automatically if WiFi drops (clinic WiFi can be flaky).
-  // Note: this blocks stepper.run() during a reconnect attempt, so a
-  // move in progress will pause (not jerk or lose position) if WiFi drops.
-  if (WiFi.status() != WL_CONNECTED) {
-    Serial.println("WiFi lost, reconnecting...");
-    connectWiFi();
-  }
 }
