@@ -134,6 +134,62 @@ void handleTest() {
   sendOk("\"message\":\"Moved 1cm out and back. Should be smooth and quiet in both directions -- if it just buzzes/vibrates without turning, swap the two wires of one motor coil pair.\"");
 }
 
+void handleRoot() {
+  String html = R"HTML(<!DOCTYPE html>
+<html><head><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Accu-Vis Rail Control</title>
+<style>
+body{font-family:sans-serif;max-width:420px;margin:0 auto;padding:16px;background:#111;color:#eee}
+h1{font-size:1.2em}
+button{display:block;width:100%;padding:14px;margin:8px 0;font-size:1em;border:none;border-radius:8px;background:#2d6cdf;color:#fff}
+button:active{background:#1d4fa8}
+button.danger{background:#c0392b}
+#status{background:#222;padding:12px;border-radius:8px;font-size:0.9em;white-space:pre-wrap;margin-bottom:12px}
+input{width:80px;padding:8px;font-size:1em}
+.row{display:flex;gap:8px;align-items:center}
+.row button{flex:1}
+</style></head>
+<body>
+<h1>Accu-Vis NPC/NPA Rail</h1>
+<div id="status">loading...</div>
+<button onclick="post('/test')">Test Motor (1cm out/back)</button>
+<button onclick="post('/calibrate')">Calibrate: Mark Here as 40cm Home</button>
+<button onclick="post('/home')">Go Home (40cm)</button>
+<div class="row">
+<button onclick="post('/jog?delta_cm=1')">Closer 1cm</button>
+<button onclick="post('/jog?delta_cm=-1')">Farther 1cm</button>
+</div>
+<div class="row">
+<input type="number" id="dist" placeholder="cm" value="20">
+<button onclick="moveTo()">Move To</button>
+</div>
+<button class="danger" onclick="post('/stop')">STOP</button>
+<script>
+async function refresh(){
+  try{
+    const r=await fetch('/status');
+    const j=await r.json();
+    document.getElementById('status').textContent=JSON.stringify(j,null,1);
+  }catch(e){document.getElementById('status').textContent='(status unavailable)';}
+}
+async function post(path){
+  try{
+    const r=await fetch(path,{method:'POST'});
+    await r.json();
+  }catch(e){}
+  refresh();
+}
+function moveTo(){
+  const v=document.getElementById('dist').value;
+  post('/move?distance_cm='+encodeURIComponent(v));
+}
+refresh();
+setInterval(refresh,2000);
+</script>
+</body></html>)HTML";
+  server.send(200, "text/html", html);
+}
+
 void handleNotFound() {
   sendError(404, "not found");
 }
@@ -203,6 +259,7 @@ void setup() {
 
   startAccessPoint();
 
+  server.on("/", HTTP_GET, handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/calibrate", HTTP_POST, handleCalibrate);
   server.on("/home", HTTP_POST, handleHome);
