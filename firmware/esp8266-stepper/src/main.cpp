@@ -10,6 +10,13 @@
  * manually placing the carriage at the true 40cm mark, before trusting any
  * distance reading or absolute move.
  *
+ * Served over HTTPS (self-signed cert, see include/ssl_cert.h) on port 443
+ * so that browser pages loaded over HTTPS -- like the deployed Vercel web
+ * app -- can call this device's API without being blocked by "mixed
+ * content" rules. Connect to the AccuVis-Rail WiFi network first, then
+ * visit https://192.168.4.1/ once to accept the one-time certificate
+ * warning before the Vercel app's calls will work.
+ *
  * Endpoints (all JSON, CORS-open, local network only):
  *   GET  /status              -> board + rail state
  *   POST /calibrate           -> mark the CURRENT physical position as 40.0cm home
@@ -23,16 +30,17 @@
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServer.h>
+#include <ESP8266WebServerSecure.h>
 #include <AccelStepper.h>
 #include "secrets.h"
 #include "rail_config.h"
+#include "ssl_cert.h"
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
 
-ESP8266WebServer server(80);
+BearSSL::ESP8266WebServerSecure server(443);
 AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
 
 bool calibrated = false;
@@ -208,8 +216,9 @@ void startAccessPoint() {
   Serial.println(AP_SSID);
   Serial.print("Password: ");
   Serial.println(AP_PASSWORD);
-  Serial.print("Connect your phone to that WiFi, then open: http://");
+  Serial.print("Connect your phone to that WiFi, then open: https://");
   Serial.println(WiFi.softAPIP());
+  Serial.println("(accept the one-time self-signed certificate warning)");
 }
 
 // ---------------------------------------------------------------------
@@ -259,6 +268,12 @@ void setup() {
 
   startAccessPoint();
 
+  server.getServer().setRSACert(new BearSSL::X509List(SSL_CERT), new BearSSL::PrivateKey(SSL_KEY));
+  // Smaller TLS buffers to conserve the ESP8266's limited RAM -- our
+  // requests/responses are tiny JSON (or the one small HTML page), so we
+  // don't need BearSSL's default ~16KB record buffers in each direction.
+  server.getServer().setBufferSizes(2048, 2048);
+
   server.on("/", HTTP_GET, handleRoot);
   server.on("/status", HTTP_GET, handleStatus);
   server.on("/calibrate", HTTP_POST, handleCalibrate);
@@ -269,7 +284,7 @@ void setup() {
   server.on("/test", HTTP_POST, handleTest);
   server.onNotFound(handleNotFound);
   server.begin();
-  Serial.println("HTTP server started on port 80.");
+  Serial.println("HTTPS server started on port 443.");
   Serial.println("Not calibrated yet -- POST /calibrate once the carriage is at its physical 40cm home mark.");
 }
 
