@@ -1704,6 +1704,10 @@ html.logged-out #view-login {
   color: var(--accent-green);
 }
 
+.webrtc-status-text.error {
+  color: #B3261E;
+}
+
 .remote-camera-url {
   font-family: var(--font-mono);
   font-size: 10.5px;
@@ -1711,6 +1715,10 @@ html.logged-out #view-login {
   background: rgba(74, 14, 23, 0.08);
   padding: 2px 8px;
   border-radius: var(--radius-pill);
+}
+
+.remote-camera-url.hidden {
+  display: none;
 }
 
 /* Dual Viewports (Live Eye Macro + 3D Eyeball Model) */
