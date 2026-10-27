@@ -46,6 +46,22 @@ class ThreadedServer(socketserver.ThreadingMixIn, socketserver.TCPServer):
     daemon_threads = True
     allow_reuse_address = True
 
+def find_openssl():
+    """openssl on PATH, else the copy that ships with Git for Windows (often not on PATH)."""
+    import shutil
+    found = shutil.which("openssl")
+    if found:
+        return found
+    for base in (os.environ.get("ProgramFiles"), os.environ.get("ProgramFiles(x86)"),
+                 os.path.join(os.environ.get("LOCALAPPDATA", ""), "Programs")):
+        if not base:
+            continue
+        for rel in (("Git", "usr", "bin", "openssl.exe"), ("Git", "mingw64", "bin", "openssl.exe")):
+            candidate = os.path.join(base, *rel)
+            if os.path.exists(candidate):
+                return candidate
+    return None
+
 def ensure_self_signed_cert(ip):
     """Create (once per LAN IP) a self-signed cert; returns (cert, key) or None."""
     os.makedirs(CERT_DIR, exist_ok=True)
@@ -53,9 +69,14 @@ def ensure_self_signed_cert(ip):
     key = os.path.join(CERT_DIR, f"accuvis-{ip}.key")
     if os.path.exists(cert) and os.path.exists(key):
         return cert, key
+    openssl = find_openssl()
+    if not openssl:
+        print("Warning: openssl not found, so the phone camera page cannot use HTTPS locally. "
+              "Install Git for Windows or OpenSSL, or use the hosted site for the phone camera.")
+        return None
     try:
         subprocess.run([
-            "openssl", "req", "-x509", "-newkey", "rsa:2048", "-nodes",
+            openssl, "req", "-x509", "-newkey", "rsa:2048", "-nodes",
             "-keyout", key, "-out", cert, "-days", "825",
             "-subj", "/CN=Accu-Vis Local",
             "-addext", f"subjectAltName=IP:{ip},IP:127.0.0.1,DNS:localhost"

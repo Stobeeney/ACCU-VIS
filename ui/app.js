@@ -71,7 +71,15 @@ class AccuVisApp {
       alignmentScore: 99.2,
       animationFrameId: null,
       lastTimestamp: 0,
-      breakDistanceCm: 12.4 // Clinical standard NPC range (~10-15cm)
+      breakDistanceCm: 12.4, // Clinical standard NPC range (~10-15cm)
+      // Real-rail hybrid approach: fast sweep (speed pills) down to
+      // slowZoneStartCm, then slowStepCm steps at slowSpeedCmPerSec with a
+      // slowDwellMs pause at each stop. Set hybridSteps:false for one continuous sweep.
+      hybridSteps: true,
+      slowZoneStartCm: 30.0,
+      slowStepCm: 0.5,
+      slowSpeedCmPerSec: 0.5,
+      slowDwellMs: 2000
     };
     this.eyeTracker = null;
 
@@ -87,25 +95,19 @@ class AccuVisApp {
       pollTimer: null
     };
 
-    // Remote "Phone Camera" source: another phone streams JPEG frames over
-    // the local network (see camera.html); this device polls and re-injects
-    // them into the same <video> the local-webcam eye tracker already reads.
-    this.remoteCameraState = {
-      mode: 'local', // 'local', 'remote' (same WiFi), or 'webrtc' (internet)
-      canvas: null,
-      ctx: null,
-      pollTimer: null,
-      statusTimer: null,
-      streamAttached: false
+    // Camera source: 'local' (this device's webcam) or 'phone' (a phone paired by
+    // a 6-digit code over WebRTC; see webrtc-signaling.js + camera.html).
+    this.cameraSourceState = {
+      mode: 'local'
     };
 
-    // "Phone Camera (Internet)" source: real peer-to-peer WebRTC video from a
-    // phone on any network, paired via a 6-digit code relayed through the
-    // database (see webrtc-signaling.js + camera.html).
     this.webrtcCameraState = {
       pc: null,
       signaling: null,
-      connected: false
+      connected: false,
+      code: null,
+      waitTimer: null,
+      statsTimer: null
     };
 
     // Saved Patient Records (localStorage backed)
@@ -222,8 +224,7 @@ class AccuVisApp {
       if (this.eyeTracker && this.eyeTracker.isRunning) {
         this.eyeTracker.stop();
       }
-      this.stopRemoteCameraFeed();
-      this.disconnectWebRTCCamera();
+      this.disconnectPhoneCamera();
     }
   }
 
@@ -1701,8 +1702,25 @@ class AccuVisApp {
   }
 
   async startHardwareApproach() {
-    const targetCm = this.dotState.autoStop ? this.dotState.breakDistanceCm : 4.0;
-    const moveResp = await this.railApiCall("/move", { distance_cm: targetCm });
+    const ds = this.dotState;
+    // The firmware clamps every move to its travel limits (min_cm in /status).
+    // Aim for what it can really reach so the step loop always terminates.
+    const hwStatus = await this.railApiCall("/status");
+    const hwMinCm = hwStatus && typeof hwStatus.min_cm === "number" ? hwStatus.min_cm : 4.0;
+    const targetCm = Math.max(ds.autoStop ? ds.breakDistanceCm : 4.0, hwMinCm);
+    // Hybrid: fast continuous sweep down to the slow zone, then small slow
+    // steps with a dwell at each stop (camera is stationary while tracking).
+    const hybrid = ds.hybridSteps && targetCm < ds.slowZoneStartCm;
+    const firstLegCm = hybrid ? ds.slowZoneStartCm : targetCm;
+    const moveResp = await this.railApiCall("/move", { distance_cm: firstLegCm, speed_cm_s: ds.speedCmPerSec });
+    if (moveResp && moveResp.ok && typeof moveResp.speed_cm_s === "number") {
+      // The firmware clamps to its speed ceiling; show what it really applied.
+      const pillText = document.getElementById("dot-motor-status-text");
+      if (pillText) {
+        const capped = moveResp.speed_cm_s + 0.005 < ds.speedCmPerSec ? ` (capped from ${ds.speedCmPerSec})` : "";
+        pillText.textContent = `Advancing Rail (${moveResp.speed_cm_s.toFixed(2)} cm/s${capped})...`;
+      }
+    }
     if (!moveResp || !moveResp.ok) {
       this.dotState.isApproaching = false;
       const pillText = document.getElementById("dot-motor-status-text");
@@ -1735,7 +1753,23 @@ class AccuVisApp {
           return;
         }
         if (!status.moving) {
-          return; // reached the requested target without hitting a stop threshold
+          if (hybrid && this.dotState.railDistanceCm > targetCm + 0.05) {
+            // Stopped inside the slow zone: dwell (tracker reads the eye), then step in again.
+            this.railHardware.pollTimer = setTimeout(async () => {
+              if (!this.dotState.isApproaching) return;
+              const stepCm = Math.min(ds.slowStepCm, this.dotState.railDistanceCm - targetCm);
+              const jogResp = await this.railApiCall("/jog", { delta_cm: stepCm, speed_cm_s: ds.slowSpeedCmPerSec });
+              if (!jogResp || !jogResp.ok) {
+                this.stopAndLockMeasurement("Rail connection lost");
+                return;
+              }
+              poll();
+            }, ds.slowDwellMs);
+            return;
+          }
+          // Reached the end of the firmware's travel without a break/limit threshold.
+          this.stopAndLockMeasurement(`Rail travel limit reached (${targetCm.toFixed(1)} cm)`);
+          return;
         }
       }
       this.railHardware.pollTimer = setTimeout(poll, 200);
@@ -2118,24 +2152,18 @@ class AccuVisApp {
     this.syncEyeSelectorUI();
     if (this.eyeTracker) this.updateTrackerStatus(this.eyeTracker.mode);
 
-    const sourceMode = this.remoteCameraState.mode;
+    const sourceMode = this.cameraSourceState.mode;
     const localBtn = document.getElementById('camera-source-local');
-    const remoteBtn = document.getElementById('camera-source-remote');
-    const webrtcBtn = document.getElementById('camera-source-webrtc');
+    const phoneBtn = document.getElementById('camera-source-phone');
     if (localBtn) localBtn.classList.toggle('active', sourceMode === 'local');
-    if (remoteBtn) remoteBtn.classList.toggle('active', sourceMode === 'remote');
-    if (webrtcBtn) webrtcBtn.classList.toggle('active', sourceMode === 'webrtc');
-    const banner = document.getElementById('remote-camera-banner');
-    if (banner) banner.classList.toggle('hidden', sourceMode !== 'remote');
+    if (phoneBtn) phoneBtn.classList.toggle('active', sourceMode === 'phone');
     const pairingRow = document.getElementById('webrtc-pairing-row');
-    if (pairingRow) pairingRow.classList.toggle('hidden', sourceMode !== 'webrtc');
+    if (pairingRow) pairingRow.classList.toggle('hidden', sourceMode !== 'phone');
+    this.showPhoneCameraUrl(sourceMode === 'phone');
 
-    // Resume whichever camera source was active (local webcam or same-WiFi phone).
-    // WebRTC (internet) connections are torn down when leaving this view, so the
-    // operator just needs to press Connect again -- the pairing panel stays visible.
-    if (sourceMode === 'remote') {
-      this.startRemoteCameraFeed();
-    } else if (sourceMode !== 'webrtc') {
+    // Resume the local webcam. A phone connection is torn down when leaving this
+    // view, so the operator just retypes the code (the pairing panel stays visible).
+    if (sourceMode !== 'phone') {
       this.startCameraFeed();
     }
   }
@@ -2222,145 +2250,115 @@ class AccuVisApp {
   }
 
   // =========================================================================
-  // REMOTE "PHONE CAMERA" SOURCE (see camera.html + server.py relay)
+  // CAMERA SOURCE: "This Device" webcam, or "Phone Camera" paired by a 6-digit
+  // code over WebRTC (see camera.html + webrtc-signaling.js). The same code
+  // path works whether the phone is on the laptop's WiFi or on any other
+  // network: WebRTC connects directly over the LAN when it can, otherwise
+  // through the internet (and a TURN relay, if one is configured).
   // =========================================================================
 
   setCameraSource(mode) {
-    if (mode === this.remoteCameraState.mode) return;
-    const previousMode = this.remoteCameraState.mode;
-    this.remoteCameraState.mode = mode;
+    if (mode !== 'local' && mode !== 'phone') mode = 'local';
+    if (mode === this.cameraSourceState.mode) return;
+    const previousMode = this.cameraSourceState.mode;
+    this.cameraSourceState.mode = mode;
 
     const localBtn = document.getElementById('camera-source-local');
-    const remoteBtn = document.getElementById('camera-source-remote');
-    const webrtcBtn = document.getElementById('camera-source-webrtc');
+    const phoneBtn = document.getElementById('camera-source-phone');
     if (localBtn) localBtn.classList.toggle('active', mode === 'local');
-    if (remoteBtn) remoteBtn.classList.toggle('active', mode === 'remote');
-    if (webrtcBtn) webrtcBtn.classList.toggle('active', mode === 'webrtc');
-
-    const banner = document.getElementById('remote-camera-banner');
-    if (banner) banner.classList.toggle('hidden', mode !== 'remote');
+    if (phoneBtn) phoneBtn.classList.toggle('active', mode === 'phone');
 
     const pairingRow = document.getElementById('webrtc-pairing-row');
-    if (pairingRow) pairingRow.classList.toggle('hidden', mode !== 'webrtc');
+    if (pairingRow) pairingRow.classList.toggle('hidden', mode !== 'phone');
+    this.showPhoneCameraUrl(mode === 'phone');
 
-    // Leaving 'remote' or 'webrtc' should tear down that source's connection
-    if (previousMode === 'remote') this.stopRemoteCameraFeed();
-    if (previousMode === 'webrtc') this.disconnectWebRTCCamera();
+    // Leaving the phone source tears down its connection
+    if (previousMode === 'phone') this.disconnectPhoneCamera();
 
-    if (mode === 'remote') {
+    if (mode === 'phone') {
       if (this.eyeTracker) this.eyeTracker.stop();
-      this.startRemoteCameraFeed();
-    } else if (mode === 'webrtc') {
-      if (this.eyeTracker) this.eyeTracker.stop();
-      // Waits for the operator to type the code and press Connect
+      // Waits for the operator to type the code (connects by itself on the 6th digit)
+      const input = document.getElementById('webrtc-code-input');
+      if (input) input.focus();
     } else {
       this.startCameraFeed();
     }
   }
 
-  startRemoteCameraFeed() {
-    const state = this.remoteCameraState;
-    state.streamAttached = false;
-
-    if (!state.canvas) {
-      state.canvas = document.createElement('canvas');
-      state.canvas.width = 640;
-      state.canvas.height = 480;
-      state.ctx = state.canvas.getContext('2d');
-    }
-
-    const pollFrame = () => {
-      const img = new Image();
-      img.onload = () => {
-        if (this.remoteCameraState.mode !== 'remote') return;
-        if (img.naturalWidth) {
-          state.canvas.width = img.naturalWidth;
-          state.canvas.height = img.naturalHeight;
-        }
-        state.ctx.drawImage(img, 0, 0, state.canvas.width, state.canvas.height);
-        URL.revokeObjectURL(img.src);
-
-        if (!state.streamAttached && this.eyeTracker && this.eyeTracker.video) {
-          const stream = state.canvas.captureStream(10);
-          this.eyeTracker.video.srcObject = stream;
-          this.eyeTracker.video.muted = true;
-          this.eyeTracker.video.playsInline = true;
-          this.eyeTracker.video.play().catch(() => {});
-          this.eyeTracker.recenterEyeCrop();
-          this.eyeTracker.startProcessingLoop();
-          state.streamAttached = true;
-        }
-      };
-      img.onerror = () => { /* no frame yet; keep polling silently */ };
-
-      fetch(`/api/camera/frame?t=${Date.now()}`)
-        .then(res => (res.ok ? res.blob() : null))
-        .then(blob => { if (blob) img.src = URL.createObjectURL(blob); })
-        .catch(() => {});
-    };
-
-    if (state.pollTimer) clearInterval(state.pollTimer);
-    state.pollTimer = setInterval(pollFrame, 150);
-    pollFrame();
-
-    this.pollRemoteCameraStatus();
-    if (state.statusTimer) clearInterval(state.statusTimer);
-    state.statusTimer = setInterval(() => this.pollRemoteCameraStatus(), 1500);
-  }
-
-  stopRemoteCameraFeed() {
-    const state = this.remoteCameraState;
-    if (state.pollTimer) { clearInterval(state.pollTimer); state.pollTimer = null; }
-    if (state.statusTimer) { clearInterval(state.statusTimer); state.statusTimer = null; }
-    state.streamAttached = false;
-
-    if (this.eyeTracker && this.eyeTracker.video && this.eyeTracker.video.srcObject) {
-      const stream = this.eyeTracker.video.srcObject;
-      if (stream.getTracks) stream.getTracks().forEach(t => t.stop());
-      this.eyeTracker.video.srcObject = null;
-    }
-  }
-
-  async pollRemoteCameraStatus() {
-    const statusText = document.getElementById('remote-camera-status-text');
-    const urlEl = document.getElementById('remote-camera-url');
-    const banner = document.getElementById('remote-camera-banner');
+  // Tell the operator which address to open on the phone
+  async showPhoneCameraUrl(show) {
+    const el = document.getElementById('phone-camera-url');
+    if (!el) return;
+    if (!show) { el.classList.add('hidden'); return; }
+    let url = `${location.origin}/camera.html`;
     try {
-      const res = await fetch('/api/camera/status');
-      const data = await res.json();
-      if (banner) banner.classList.toggle('connected', !!data.connected);
-      if (statusText) {
-        statusText.textContent = data.connected
-          ? 'Camera phone connected'
-          : 'Waiting for camera phone...';
+      // The local server knows its network address (a phone can't use "localhost")
+      if (/^(localhost|127\.0\.0\.1)$/.test(location.hostname)) {
+        const res = await fetch('/api/camera/status');
+        const data = await res.json();
+        if (data && data.lan_url) url = data.lan_url;
       }
-      if (urlEl) urlEl.textContent = data.lan_url || '';
-    } catch (e) {
-      if (statusText) statusText.textContent = 'Camera relay unavailable (local network only)';
-      if (banner) banner.classList.remove('connected');
+    } catch (e) { /* keep the default */ }
+    el.textContent = `On the phone, open: ${url}`;
+    el.classList.remove('hidden');
+  }
+
+  setPhoneStatus(text, state) {
+    const el = document.getElementById('webrtc-status-text');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.toggle('connected', state === 'ok');
+    el.classList.toggle('error', state === 'error');
+  }
+
+  setPhoneButton(connecting) {
+    const btn = document.getElementById('webrtc-connect-btn');
+    if (btn) btn.textContent = connecting ? 'Disconnect' : 'Connect';
+  }
+
+  // Connects automatically as soon as the sixth digit is typed
+  onPhoneCodeInput(input) {
+    input.value = input.value.replace(/\D/g, '').slice(0, 6);
+    if (input.value.length === 6 && !this.webrtcCameraState.pc) {
+      this.connectPhoneCamera();
     }
   }
 
-  connectWebRTCCamera() {
+  togglePhoneCamera() {
+    if (this.webrtcCameraState.pc) {
+      this.disconnectPhoneCamera();
+      this.setPhoneStatus('Disconnected. Enter the code to connect again.', 'idle');
+    } else {
+      this.connectPhoneCamera();
+    }
+  }
+
+  connectPhoneCamera() {
     const input = document.getElementById('webrtc-code-input');
-    const statusText = document.getElementById('webrtc-status-text');
     const code = (input && input.value || '').trim();
 
     if (!/^\d{6}$/.test(code)) {
-      if (statusText) { statusText.textContent = 'Enter the 6-digit code shown on the camera phone'; statusText.classList.remove('connected'); }
+      this.setPhoneStatus('Enter the 6-digit code shown on the camera phone', 'error');
       return;
     }
 
-    this.disconnectWebRTCCamera(); // clear any previous attempt
+    this.disconnectPhoneCamera(); // clear any previous attempt
     const state = this.webrtcCameraState;
-
-    if (statusText) { statusText.textContent = `Connecting to ${code}...`; statusText.classList.remove('connected'); }
-
-    const pc = new RTCPeerConnection({ iceServers: [{ urls: 'stun:stun.l.google.com:19302' }] });
+    const pc = new RTCPeerConnection({ iceServers: window.ACCUVIS_ICE_SERVERS });
     const signaling = new AccuVisSignaling(code, 'controller');
     state.pc = pc;
     state.signaling = signaling;
     state.connected = false;
+    state.code = code;
+    this.setPhoneButton(true);
+    this.setPhoneStatus(`Looking for the phone with code ${code}...`, 'busy');
+
+    const pendingIce = [];
+    const flushIce = async () => {
+      while (pendingIce.length) {
+        try { await pc.addIceCandidate(pendingIce.shift()); } catch (e) { /* late/duplicate */ }
+      }
+    };
 
     pc.ontrack = (e) => {
       if (!this.eyeTracker || !this.eyeTracker.video) return;
@@ -2370,43 +2368,101 @@ class AccuVisApp {
       this.eyeTracker.video.play().catch(() => {});
       this.eyeTracker.recenterEyeCrop();
       this.eyeTracker.startProcessingLoop();
-      state.connected = true;
-      if (statusText) { statusText.textContent = 'Camera phone connected'; statusText.classList.add('connected'); }
     };
 
-    pc.onicecandidate = (e) => { if (e.candidate) signaling.send('ice', e.candidate); };
+    pc.onicecandidate = (e) => {
+      if (e.candidate) signaling.send('ice', e.candidate).catch(() => {});
+    };
 
     pc.onconnectionstatechange = () => {
-      if (!statusText) return;
+      if (state.pc !== pc) return;
       if (pc.connectionState === 'connected') {
-        statusText.textContent = 'Camera phone connected';
-        statusText.classList.add('connected');
-      } else if (pc.connectionState === 'disconnected' || pc.connectionState === 'failed') {
-        statusText.textContent = 'Connection lost. Re-enter the code to reconnect.';
-        statusText.classList.remove('connected');
+        state.connected = true;
+        clearTimeout(state.waitTimer);
+        this.setPhoneStatus('Camera phone connected', 'ok');
+        this.startPhoneStats(pc);
+      } else if (pc.connectionState === 'disconnected') {
         state.connected = false;
+        this.setPhoneStatus('Connection interrupted, reconnecting...', 'busy');
+      } else if (pc.connectionState === 'failed') {
+        state.connected = false;
+        this.setPhoneStatus('Connection lost. Check the phone, then press Connect again.', 'error');
+        this.setPhoneButton(false);
       }
     };
 
-    let answered = false;
     signaling.startPolling(async (type, payload) => {
-      if (type === 'offer' && !answered) {
-        answered = true;
+      if (state.pc !== pc) return;
+      if (type === 'offer') {
+        // Every offer is answered: the phone sends a new one when it restarts ICE after a drop
+        clearTimeout(state.waitTimer);
+        this.setPhoneStatus('Phone found, connecting...', 'busy');
         await pc.setRemoteDescription(new RTCSessionDescription(payload));
+        await flushIce();
         const answer = await pc.createAnswer();
         await pc.setLocalDescription(answer);
-        await signaling.send('answer', answer);
+        await signaling.send('answer', pc.localDescription);
       } else if (type === 'ice') {
-        try { await pc.addIceCandidate(payload); } catch (e) { /* ignore late/duplicate candidates */ }
+        if (pc.remoteDescription) {
+          try { await pc.addIceCandidate(payload); } catch (e) { /* late/duplicate */ }
+        } else {
+          pendingIce.push(payload);
+        }
       }
     });
+
+    // Tell a phone that is already streaming (an earlier session) to send a fresh offer
+    signaling.send('hello', { t: Date.now() }).catch(() => {});
+
+    // Nobody answered: most likely the code is wrong or the phone has not started streaming yet
+    state.waitTimer = setTimeout(() => {
+      if (state.pc !== pc || state.connected) return;
+      this.setPhoneStatus('No phone found for this code. Start streaming on the phone and check the code.', 'error');
+    }, 25000);
   }
 
-  disconnectWebRTCCamera() {
+  // Shows resolution, frame rate and whether the link is direct (same network) or goes via the internet
+  startPhoneStats(pc) {
     const state = this.webrtcCameraState;
+    clearInterval(state.statsTimer);
+    const tick = async () => {
+      if (state.pc !== pc || pc.connectionState !== 'connected') return;
+      try {
+        const report = await pc.getStats();
+        let inbound = null;
+        let pair = null;
+        const candidates = {};
+        report.forEach(s => {
+          if (s.type === 'inbound-rtp' && (s.kind === 'video' || s.mediaType === 'video')) inbound = s;
+          if (s.type === 'candidate-pair' && s.nominated && s.state === 'succeeded') pair = s;
+          if (s.type === 'local-candidate' || s.type === 'remote-candidate') candidates[s.id] = s;
+        });
+        let route = '';
+        if (pair) {
+          const l = candidates[pair.localCandidateId];
+          const r = candidates[pair.remoteCandidateId];
+          const kinds = [l && l.candidateType, r && r.candidateType];
+          route = kinds.includes('relay') ? 'relayed' : (kinds.every(k => k === 'host') ? 'same network' : 'internet');
+        }
+        const parts = ['Camera phone connected'];
+        if (inbound && inbound.frameWidth) parts.push(`${inbound.frameWidth}×${inbound.frameHeight}`);
+        if (inbound && typeof inbound.framesPerSecond === 'number') parts.push(`${Math.round(inbound.framesPerSecond)} fps`);
+        if (route) parts.push(route);
+        this.setPhoneStatus(parts.join(' • '), 'ok');
+      } catch (e) { /* stats are informational only */ }
+    };
+    state.statsTimer = setInterval(tick, 2000);
+    tick();
+  }
+
+  disconnectPhoneCamera() {
+    const state = this.webrtcCameraState;
+    clearTimeout(state.waitTimer);
+    clearInterval(state.statsTimer);
     if (state.signaling) { state.signaling.stopPolling(); state.signaling = null; }
     if (state.pc) { state.pc.close(); state.pc = null; }
     state.connected = false;
+    this.setPhoneButton(false);
 
     if (this.eyeTracker && this.eyeTracker.video && this.eyeTracker.video.srcObject) {
       const stream = this.eyeTracker.video.srcObject;
