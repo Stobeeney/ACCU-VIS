@@ -196,6 +196,7 @@ def provision_rail(rail_id, name="", now=None):
         INSERT INTO rails (rail_id, name, secret_hash, created_at) VALUES (?, ?, ?, ?)
         ON CONFLICT(rail_id) DO UPDATE SET secret_hash = excluded.secret_hash, name = excluded.name
     """), (rail_id, name, _sha(secret), _iso(now)))
+    _ensure_state_row(cur, rail_id)
     conn.commit()
     conn.close()
     return secret
@@ -247,9 +248,14 @@ def rail_sync(rail_id, body, now=None):
     conn = db.get_connection()
     cur = conn.cursor()
     try:
-        _ensure_state_row(cur, rail_id)
+        # Every query is a round trip to the database, so keep a check-in to three:
+        # read the state, write the state, read the pending commands.
         cur.execute(db.q("SELECT updated_at, armed_until, stop_latched FROM rail_state WHERE rail_id = ?"), (rail_id,))
         row = cur.fetchone()
+        if row is None:                      # rails created before the state row was provisioned
+            _ensure_state_row(cur, rail_id)
+            cur.execute(db.q("SELECT updated_at, armed_until, stop_latched FROM rail_state WHERE rail_id = ?"), (rail_id,))
+            row = cur.fetchone()
         armed = bool(row["armed_until"]) and _parse(row["armed_until"]) > now
         latched = bool(row["stop_latched"])
         prev = _parse(row["updated_at"]) if row["updated_at"] else None
@@ -393,12 +399,16 @@ def get_status(rail_id, now=None):
     conn = db.get_connection()
     cur = conn.cursor()
     try:
-        if not _rail_exists(cur, rail_id):
-            raise ValueError("Unknown rail.")
-        cur.execute(db.q("SELECT updated_at, state_json, armed_until, stop_latched FROM rail_state WHERE rail_id = ?"), (rail_id,))
+        # one query: the rail (must exist) joined with its state
+        cur.execute(db.q("SELECT r.rail_id AS rail_id, s.updated_at AS updated_at, s.state_json AS state_json, "
+                         "s.armed_until AS armed_until, s.stop_latched AS stop_latched "
+                         "FROM rails r LEFT JOIN rail_state s ON s.rail_id = r.rail_id WHERE r.rail_id = ?"), (rail_id,))
         row = cur.fetchone()
-        if not row:
-            return {"online": False, "armed": False, "stop_latched": False, "state": {}, "age_s": None, "recent": []}
+        if row is None:
+            raise ValueError("Unknown rail.")
+        if row["updated_at"] is None and row["state_json"] is None and row["armed_until"] is None:
+            return {"online": False, "armed": False, "stop_latched": bool(row["stop_latched"]), "state": {},
+                    "age_s": None, "recent": []}
         armed = bool(row["armed_until"]) and _parse(row["armed_until"]) > now
         age = (now - _parse(row["updated_at"])).total_seconds() if row["updated_at"] else None
         window = 5.0 if armed else (POLL_IDLE_MS / 1000.0) * 2.5
