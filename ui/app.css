@@ -3053,3 +3053,8 @@ html.logged-out #view-login {
   outline: 2px solid var(--primary-maroon);
   outline-offset: 2px;
 }
+
+/* Cloud-only rail controls sit inline with the always-visible link selector; they hide as a group */
+.rail-cloud-fields {
+  display: contents;
+}
