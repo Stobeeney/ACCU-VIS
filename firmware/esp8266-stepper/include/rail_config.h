@@ -154,6 +154,10 @@
 #endif
 
 #define CLOUD_WATCHDOG_MS        3000   // no good check-in this long while moving -> stop
+// A profile that loses the link is HELD (stands still) and continues by itself when the link is
+// back, as long as that happens within this window and the rail is still armed with no STOP.
+// After the window it stays where it is until the operator acts.
+#define CLOUD_RESUME_WINDOW_MS  30000
 #define CLOUD_REQUEST_TIMEOUT_MS 4000
 #define CLOUD_CONNECT_TIMEOUT_MS 6000
 #define CLOUD_MIN_POLL_MS         250

@@ -2009,9 +2009,10 @@ class AccuVisApp {
       if (!ds.isApproaching) return;
       const s = await this.railApiCall("/status");
       if (!s || !s.ok) {
-        // The rail stops itself after 3 s without contact; give the link a few tries
-        if (++misses >= 4) return giveUp("Lost contact with the rail. It stops itself when contact is lost.");
-        if (pillText) pillText.textContent = "Waiting for the rail to answer...";
+        // The rail holds its position after 3 s without contact and continues the same approach
+        // if contact returns within ~30 s, so keep waiting that long before giving up.
+        if (++misses >= 20) return giveUp("Lost contact with the rail. It is holding its position; check the rail's WiFi, then start again.");
+        if (pillText) pillText.textContent = "Lost contact. The rail holds position and continues when the link is back...";
         rh.pollTimer = setTimeout(poll, 1500);
         return;
       }
@@ -2030,6 +2031,13 @@ class AccuVisApp {
         this.stopAndLockMeasurement("Rail stopped");
         return;
       }
+      if (s.profile_state === "HELD") {
+        // The rail lost contact, is standing still, and continues by itself when it is back
+        if (pillText) pillText.textContent = "Rail holding position (its link dropped). It continues by itself when contact returns.";
+        rh.pollTimer = setTimeout(poll, 1200);
+        return;
+      }
+      if (pillText && /holding|Lost contact/.test(pillText.textContent)) pillText.textContent = "Advancing Rail (continuing after the link came back)...";
       if (sawProfile && s.profile_state === "RETURN") {
         giveUp(`Reached ${target.toFixed(1)} cm with no break marked. The rail is returning home.`);
         return;

@@ -12,7 +12,8 @@
 // Safety rules enforced here, in addition to the server's:
 //   - motion commands are refused unless the server says "armed" and not "stop_latched"
 //   - the rail stops if "disarmed" or "stop latched" arrives while it is moving
-//   - the rail stops if no good check-in arrived for CLOUD_WATCHDOG_MS while moving / in a profile
+//   - the rail stops if no good check-in arrived for CLOUD_WATCHDOG_MS while moving / in a profile;
+//     a profile is HELD (remembered) and continues when contact returns within CLOUD_RESUME_WINDOW_MS
 //   - after any of those stops it stays stopped until a fresh command arrives
 //   - every numeric parameter is range-checked again, and the travel/speed limits apply
 #include <Arduino.h>
@@ -91,14 +92,24 @@ bool busy() { return stepper.isRunning() || profileActive(); }
 
 // ---- safety -------------------------------------------------------------------------------
 
+// A profile that loses the link is held (and continues later); a plain move/jog just stops.
+void holdOrStop(const char *reason) {
+  if (profileActive()) profilePause(reason);
+  else if (!profileHeld()) railHardStop(reason);   // a held profile is already standing still
+}
+
 void applyFlags() {
-  if (!busy()) return;
-  if (stopLatched) railHardStop("stop latched");
+  if (!busy() && !profileHeld()) return;
+  if (stopLatched) railHardStop("stop latched");   // these cancel a held profile too
   else if (!armed) railHardStop("disarmed");
 }
 
 void safetyTick(unsigned long now) {
-  if (busy() && (now - lastOkSync) > CLOUD_WATCHDOG_MS) railHardStop("link lost");
+  if (profileHeld()) {
+    if (profileHeldMs() > CLOUD_RESUME_WINDOW_MS) railHardStop("hold timed out");   // stays put, profile dropped
+    return;
+  }
+  if (busy() && (now - lastOkSync) > CLOUD_WATCHDOG_MS) holdOrStop("link lost - holding");
 }
 
 // ---- commands -----------------------------------------------------------------------------
@@ -113,7 +124,7 @@ void execCommand(uint32_t seq, const char *type, JsonObjectConst p) {
     return;
   }
   if (strcmp(type, "calibrate") == 0) {
-    if (busy()) { queueAck(seq, "rejected:moving"); return; }
+    if (busy() || profileHeld()) { queueAck(seq, "rejected:moving"); return; }   // a held profile still owns the position
     stepper.setCurrentPosition(0);
     calibrated = true;
     railClearStopReason();
@@ -214,7 +225,7 @@ size_t buildRequest(char *out, size_t cap) {
   s["distance_cm"] = lroundf(cm * 100.0f) / 100.0f;
   s["moving"] = stepper.isRunning();
   s["calibrated"] = calibrated;
-  s["mode"] = profileActive() ? "profile" : (stepper.isRunning() ? "move" : "idle");
+  s["mode"] = profileActive() ? "profile" : (profileHeld() ? "held" : (stepper.isRunning() ? "move" : "idle"));
   s["profile_state"] = profileStateName();
   s["fw"] = FW_VERSION;
   s["rssi"] = WiFi.RSSI();
@@ -248,7 +259,7 @@ void startRequest(unsigned long now) {
 #if CLOUD_TLS
     // A TLS handshake takes seconds on this chip and would freeze the stepper mid-move, so a
     // dropped connection during motion is treated as a lost link: stop first, then reconnect.
-    if (busy()) railHardStop("reconnecting");
+    if (busy()) holdOrStop("reconnecting - holding");
 #endif
     if (!connectServer()) { fail(now, "could not connect"); return; }
   }
@@ -292,6 +303,11 @@ void onResponse(unsigned long now) {
   nextPollAt = now + pollMs;
 
   applyFlags();                    // disarm / latch take effect before any new command runs
+
+  // Contact is back: continue a held profile, but only if the operator has not disarmed or
+  // latched a STOP meanwhile (applyFlags above would have cancelled it). Commands below, such as
+  // a STOP in this same reply, still run after this and win.
+  if (profileHeld() && armed && !stopLatched) profileResume();
 
   JsonArrayConst cmds = doc["commands"];
   for (JsonObjectConst c : cmds) {

@@ -23,8 +23,14 @@ struct Profile {
 
 bool profileStart(const Profile &p);        // false if rejected (bad numbers)
 void profileAbort();
-bool profileActive();
-bool profileFinished();                     // true once, after a profile ran to completion
+bool profileActive();                       // running (not held)
+// Hold: decelerate and stand still but REMEMBER the profile, so profileResume() continues it
+// from the same leg/step/dwell. Used for a lost link. Any stop, disarm or new command cancels it.
+bool profilePause(const char *reason);      // true if a running profile is now held
+bool profileHeld();
+unsigned long profileHeldMs();              // how long it has been held
+bool profileResume();
+bool profileFinished();                    // true once, after a profile ran to completion
 const char *profileStateName();
 
 // Stop moving as soon as possible (decelerates), cancel any profile, remember why.

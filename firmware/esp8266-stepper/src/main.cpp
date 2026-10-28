@@ -293,10 +293,12 @@ void startAccessPoint() {
 // each stop (the phone tracks the eye while the carriage stands still), then back
 // home. Non-blocking: profileTick() runs from loop().
 
-enum ProfileState : uint8_t { PS_IDLE, PS_FAST, PS_STEP, PS_DWELL, PS_RETURN };
+enum ProfileState : uint8_t { PS_IDLE, PS_FAST, PS_STEP, PS_DWELL, PS_RETURN, PS_HELD };
 
 static Profile prof;
 static ProfileState profState = PS_IDLE;
+static ProfileState heldFrom = PS_IDLE;     // the leg that was running when the hold began
+static unsigned long heldAt = 0;
 static unsigned long profSince = 0;
 static float profCm = RAIL_HOME_CM;
 static bool profDone = false;
@@ -309,11 +311,14 @@ const char *profileStateName() {
     case PS_STEP:   return "STEP";
     case PS_DWELL:  return "DWELL";
     case PS_RETURN: return "RETURN";
+    case PS_HELD:   return "HELD";
     default:        return "IDLE";
   }
 }
 
-bool profileActive() { return profState != PS_IDLE; }
+bool profileActive() { return profState != PS_IDLE && profState != PS_HELD; }
+bool profileHeld() { return profState == PS_HELD; }
+unsigned long profileHeldMs() { return profState == PS_HELD ? millis() - heldAt : 0; }
 
 bool profileFinished() {
   bool d = profDone;
@@ -352,6 +357,48 @@ void railHardStop(const char *reason) {
   Serial.printf("STOP: %s\n", reason);
 }
 
+bool profilePause(const char *reason) {
+  if (!profileActive()) return false;         // nothing running, or already held
+  heldFrom = profState;
+  heldAt = millis();
+  profState = PS_HELD;                        // set first: profileTick must not read the halt as "leg finished"
+  stepper.stop();                             // decelerates to a halt and holds there
+  stopping = true;
+  strncpy(stopReasonBuf, reason, sizeof(stopReasonBuf) - 1);
+  stopReasonBuf[sizeof(stopReasonBuf) - 1] = '\0';
+  Serial.printf("HOLD: %s (profile kept, leg %d)\n", reason, (int)heldFrom);
+  return true;
+}
+
+bool profileResume() {
+  if (profState != PS_HELD) return false;
+  switch (heldFrom) {
+    case PS_FAST:
+      applySpeedCmPerSec(prof.fastCmS);
+      stepper.moveTo(cmToMicrosteps(prof.fastEndCm));
+      break;
+    case PS_STEP:
+      applySpeedCmPerSec(prof.slowCmS);
+      stepper.moveTo(cmToMicrosteps(profCm));
+      break;
+    case PS_DWELL:
+      profSince += millis() - heldAt;         // the time spent held does not count as dwell
+      break;
+    case PS_RETURN:
+      applySpeedCmPerSec(0);
+      stepper.moveTo(0);
+      break;
+    default:
+      profState = PS_IDLE;
+      return false;
+  }
+  profState = heldFrom;
+  stopping = false;
+  stopReasonBuf[0] = '\0';
+  Serial.printf("RESUME: continuing leg %d at %.2f cm\n", (int)heldFrom, microstepsToCm(stepper.currentPosition()));
+  return true;
+}
+
 const char *railStopReason() { return stopReasonBuf; }
 void railClearStopReason() { stopReasonBuf[0] = '\0'; }
 
@@ -360,6 +407,7 @@ void profileTick() {
 
   switch (profState) {
     case PS_IDLE:
+    case PS_HELD:
       return;
     case PS_FAST:
     case PS_STEP:
