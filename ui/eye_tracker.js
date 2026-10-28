@@ -62,11 +62,16 @@ class AccuVisEyeTracker {
       gazeX: 0.0,
       gazeY: 0.0,
       gazeZ: 1.0,
-      symmetryScore: 99.2,
-      confidence: 0.95,
-      isConverged: false,
+      symmetryScore: 0,      // = tracking quality in % (name kept for the existing UI)
+      confidence: 0,         // = tracking quality 0..1
+      quality: 0,
+      qualityReasons: [],
+      isConverged: false,    // legacy: never true any more; see breakResult
+      breakResult: null,
+      faceLostMs: 0,
+      faceSeenMs: 0,
       targetEye: this.targetEye,
-      fps: 30
+      fps: 0
     };
 
     // Center Calibration State (Primary Gaze Alignment & Ocular Centering)
@@ -95,6 +100,11 @@ class AccuVisEyeTracker {
     this.gazeBaseline = { A: { x: 0, y: 0 }, B: { x: 0, y: 0 } };
     this.smoothGaze = { A: { x: 0, y: 0 }, B: { x: 0, y: 0 } };
     this.hasLandmarkCrop = false;
+    // Honest tracking quality (replaces the old constant "confidence") and the break detector
+    this.q = { presence: 0, dt: 33, lastTs: 0, jitter: 0, prevRaw: null, reasons: [], faceLostSince: 0, faceSeenSince: 0 };
+    this.breakDetector = window.ConvergenceBreakDetector ? new window.ConvergenceBreakDetector() : null;
+    this.breakActive = false;
+    this.lastBreakEval = 0;
     this.initLandmarker();
 
     // Start the render loop immediately so the 3D eye model is active from frame 1
@@ -132,6 +142,85 @@ class AccuVisEyeTracker {
 
   updateCarriageDistance(distCm) {
     this.railDistanceCm = Math.max(4.0, Math.min(40.0, distCm));
+  }
+
+  // ---- convergence-break detection (see convergence_break.js) ----------------------------------
+  beginBreakDetection({ dwellMs, startCm, endCm } = {}) {
+    if (!this.breakDetector) return false;
+    this.breakDetector.reset();
+    this.breakDetector.configure({ dwellMs, startCm, endCm });
+    this.breakActive = true;
+    this.trackingResult.breakResult = null;
+    return true;
+  }
+
+  /** Feed with every rail status the page receives. */
+  setRailState({ distanceCm, moving }) {
+    if (typeof distanceCm !== 'number' || !isFinite(distanceCm)) return;
+    this.updateCarriageDistance(distanceCm);
+    if (this.breakDetector && this.breakActive) this.breakDetector.updateRail({ t: performance.now(), distanceCm, moving: !!moving });
+  }
+
+  breakBaselineReady() { return !!(this.breakDetector && this.breakDetector.baselineReady); }
+
+  /** Approach over: final verdict ('break' | 'no_break' | 'unreliable'). */
+  endBreakDetection() {
+    if (!this.breakDetector) return null;
+    const res = this.mode === 'landmarks'
+      ? this.breakDetector.evaluate(true)
+      : { state: 'unreliable', reason: 'The landmark tracker is not running (basic mode cannot measure convergence).' };
+    this.breakActive = false;
+    this.trackingResult.breakResult = res;
+    return res;
+  }
+
+  // ---- tracking quality ------------------------------------------------------------------------
+  noteFrame(present, nowMs) {
+    const q = this.q;
+    q.presence += ((present ? 1 : 0) - q.presence) * 0.08;      // ~12 frames of memory
+    if (q.lastTs) q.dt += Math.min(500, nowMs - q.lastTs - q.dt) * 0.1;
+    q.lastTs = nowMs;
+    const r = this.trackingResult;
+    r.fps = Math.round(1000 / Math.max(1, q.dt));
+    if (present) {
+      if (!q.faceSeenSince) q.faceSeenSince = nowMs;
+      q.faceLostSince = 0;
+    } else {
+      q.faceSeenSince = 0;
+    }
+    r.faceSeenMs = q.faceSeenSince ? nowMs - q.faceSeenSince : 0;
+  }
+
+  /** Real quality 0..1 from what was actually observed. Returns { usable, quality }. */
+  assessQuality(fresh, fullW) {
+    const q = this.q;
+    const r = this.trackingResult;
+    const reasons = [];
+    const A = fresh.A, B = fresh.B;
+
+    // frame-to-frame noise of the vergence signal
+    const raw = A.h - B.h;
+    if (q.prevRaw !== null) q.jitter += (Math.abs(raw - q.prevRaw) - q.jitter) * 0.1;
+    q.prevRaw = raw;
+    const jitterFactor = Math.max(0, Math.min(1, 1 - q.jitter / 0.15));
+    if (jitterFactor < 0.7) reasons.push('unsteady eye readings');
+
+    const fpsFactor = Math.max(0, Math.min(1, (r.fps - 5) / 10));
+    if (fpsFactor < 1) reasons.push('low frame rate');
+
+    let usable = true;
+    if (A.blink || B.blink) { usable = false; reasons.push('blink'); }
+    const minW = Math.min(A.width, B.width);
+    if (minW < 28 * (fullW / 640)) { usable = false; reasons.push('eyes too small in the image'); }
+    if (Math.abs(A.width - B.width) / (A.width + B.width) > 0.2) { usable = false; reasons.push('head turned'); }
+    for (const e of [A, B]) {
+      const ratio = e.irisR / e.width;
+      if (!(ratio > 0.10 && ratio < 0.45)) { usable = false; reasons.push('iris not found'); break; }
+    }
+
+    const quality = q.presence * fpsFactor * jitterFactor;
+    q.reasons = reasons;
+    return { usable, quality, raw };
   }
 
   recenterEyeCrop() {
@@ -222,15 +311,23 @@ class AccuVisEyeTracker {
   updateFromLandmarks(result, fullW, fullH, leftW, leftH) {
     const r = this.trackingResult;
     const lm = result && result.faceLandmarks && result.faceLandmarks[0];
+    const nowMs = performance.now();
     if (!lm || lm.length < 478) {
       this.faceMissFrames++;
+      this.noteFrame(false, nowMs);
       if (this.faceMissFrames > 8) {
         r.detected = false;
-        this.recordConvergence(94.0, 0.5);
+        if (!this.q.faceLostSince) this.q.faceLostSince = nowMs;
+        r.faceLostMs = nowMs - this.q.faceLostSince;
       }
+      r.quality = r.confidence = Math.round(this.q.presence * 100) / 100;
+      r.symmetryScore = Math.round(r.quality * 1000) / 10;
+      r.qualityReasons = ['face not found'];
       return;
     }
     this.faceMissFrames = 0;
+    this.noteFrame(true, nowMs);
+    r.faceLostMs = 0;
 
     const LM = AccuVisEyeTracker.LANDMARKS;
     const fresh = {
@@ -281,17 +378,21 @@ class AccuVisEyeTracker {
     r.gazeZ = Math.sqrt(Math.max(0.01, 1.0 - distSq));
     r.eyeGazes = eyeGazes;
 
-    let dev;
-    if (eyeGazes.length === 2) {
-      dev = (Math.abs(eyeGazes[0].x + eyeGazes[1].x) / 2 + Math.abs(eyeGazes[0].y - eyeGazes[1].y) / 2) * 2.5;
-    } else {
-      dev = Math.sqrt(gx * gx + gy * gy);
-    }
-    r.symmetryScore = parseFloat(Math.max(93.0, 99.8 - dev * 4.8).toFixed(1));
     r.detected = true;
-    r.confidence = 0.95;
     r.pupilAngle = 0;
-    this.recordConvergence(r.symmetryScore, r.gazeZ);
+
+    const { usable, quality, raw } = this.assessQuality(fresh, fullW);
+    r.quality = r.confidence = Math.round(quality * 100) / 100;
+    r.symmetryScore = Math.round(quality * 1000) / 10;
+    r.qualityReasons = this.q.reasons.slice();
+    r.vergenceRaw = raw;
+    if (this.breakDetector && this.breakActive) {
+      this.breakDetector.addFrame({ t: nowMs, raw, usable, quality });
+      if (nowMs - this.lastBreakEval > 250) {          // 4 Hz is plenty and keeps the frame loop light
+        this.lastBreakEval = nowMs;
+        r.breakResult = this.breakDetector.evaluate(false);
+      }
+    }
 
     // Crop target: frame the chosen eye's socket (head-driven, NOT iris-driven, so it stays steady)
     const aspect = leftH / leftW;
@@ -512,7 +613,7 @@ class AccuVisEyeTracker {
     this.trackingResult.gazeX = 0.0;
     this.trackingResult.gazeY = 0.0;
     this.trackingResult.gazeZ = 1.0;
-    this.trackingResult.symmetryScore = 99.8;
+    this.trackingResult.symmetryScore = 0;
 
     return {
       success: true,
@@ -742,7 +843,7 @@ class AccuVisEyeTracker {
 
       // Vergence symmetry calculation
       const dev = Math.sqrt(rawGazeX * rawGazeX + rawGazeY * rawGazeY);
-      this.trackingResult.symmetryScore = parseFloat(Math.max(93.0, (99.8 - dev * 4.8)).toFixed(1));
+      this.trackingResult.symmetryScore = 0;     // basic mode: no honest quality measure
 
       this.recordConvergence(this.trackingResult.symmetryScore, this.trackingResult.gazeZ);
     } else {
@@ -904,7 +1005,15 @@ class AccuVisEyeTracker {
     };
   }
 
-  recordConvergence(symmetry, gazeZ) {
+  // Legacy "convergence lock" (looked centred => stop). Removed: it stopped every steady patient at
+  // 20 cm and could not tell converged eyes from eyes looking at infinity. Kept as a no-op for the
+  // basic (non-landmark) mode, which cannot measure convergence at all.
+  recordConvergence() {
+    this.trackingResult.isConverged = false;
+    return;
+  }
+
+  recordConvergenceLegacy(symmetry, gazeZ) {
     this.convergenceHistory.push({ symmetry, gazeZ, timestamp: performance.now() });
     if (this.convergenceHistory.length > this.historyMaxLength) {
       this.convergenceHistory.shift();
@@ -1017,7 +1126,8 @@ class AccuVisEyeTracker {
     ctx.font = '8.5px JetBrains Mono, monospace';
     ctx.fillText(`PUPIL: (${Math.round(r.pupilX)}, ${Math.round(r.pupilY)})`, 6, h - 8);
 
-    const statusText = r.isConverged ? "CONVERGED" : (this.calibration.isCalibrated ? "CALIBRATED" : "LOCKED");
+    const brk = r.breakResult && r.breakResult.state;
+    const statusText = brk === 'break' ? "BREAK" : (this.calibration.isCalibrated ? "CALIBRATED" : "TRACKING");
     ctx.fillStyle = (r.isConverged || this.calibration.isCalibrated) ? lockGreen : irisBlue;
     ctx.fillText(statusText, w - (statusText.length * 6 + 6), h - 8);
   }

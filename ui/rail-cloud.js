@@ -94,6 +94,9 @@ class AccuVisRailCloud {
   disarm() { return this.command('disarm', {}, { wait: false }); }
   clearStop() { return this.command('clear_stop', {}, { wait: false }); }
   stop() { return this.command('stop', {}, { wait: false }); }   // latched; never waits
+  // Pause the running approach in place (keeps it); only resume() continues it. Not a latched stop.
+  hold() { return this.command('hold', {}, { wait: false }); }
+  resume() { return this.command('resume', {}, { wait: false }); }
 
   static explain(result) {
     const map = {
@@ -103,6 +106,8 @@ class AccuVisRailCloud {
       'rejected:moving': 'The rail refused: it is moving. Stop it first.',
       'rejected:range': 'The rail refused: that distance is outside its travel limits.',
       'rejected:profile': 'The rail refused the approach settings.',
+      'rejected:no profile': 'There is no approach running to hold.',
+      'rejected:not held': 'The approach was not on hold.',
       'rejected:unknown': 'The rail does not understand that command (is its firmware up to date?).'
     };
     return map[result] || `The rail answered: ${result || 'no result'}.`;

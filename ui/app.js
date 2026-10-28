@@ -1968,7 +1968,18 @@ class AccuVisApp {
   async startCloudApproach() {
     const ds = this.dotState;
     const rh = this.railHardware;
+    const tracker = this.eyeTracker;
+    let measuring = false;               // true while the convergence-break detector is collecting
+    ds.breakHandled = false;
+    rh.faceHold = false;
+    const endMeasuring = () => {
+      if (!measuring || !tracker) return null;
+      measuring = false;
+      return tracker.endBreakDetection();
+    };
     const giveUp = (message) => {
+      endMeasuring();
+      rh.faceHold = false;
       ds.isApproaching = false;
       const text = document.getElementById("dot-motor-status-text");
       if (text) text.textContent = message;
@@ -1986,6 +1997,30 @@ class AccuVisApp {
 
     const target = Math.max(ds.autoStop ? ds.breakDistanceCm : 4.0, st.min_cm);
     const fastEnd = ds.hybridSteps ? Math.min(40, Math.max(ds.slowZoneStartCm, target)) : target;
+
+    // Convergence-break detection needs the eyes' starting position, read while the rail still rests
+    // at the start distance. Without a steady reading the approach still runs, but only manually.
+    const pillNote = document.getElementById("dot-motor-status-text");
+    if (tracker && tracker.mode === "landmarks" &&
+        tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: fastEnd, endCm: target })) {
+      measuring = true;
+      tracker.setRailState({ distanceCm: st.distance_cm, moving: false });
+      const t0 = performance.now();
+      while (!tracker.breakBaselineReady() && performance.now() - t0 < 4000 && ds.isApproaching) {
+        if (pillNote) pillNote.textContent = "Reading the starting eye position. Keep the patient looking at the camera...";
+        await new Promise((r) => setTimeout(r, 400));
+        const s2 = await this.railApiCall("/status");
+        if (s2 && s2.ok) tracker.setRailState({ distanceCm: s2.distance_cm, moving: !!s2.moving });
+      }
+      if (!ds.isApproaching) { endMeasuring(); return; }          // operator pressed Stop meanwhile
+      if (!tracker.breakBaselineReady()) {
+        endMeasuring();
+        this.showNotification("No eye reading", "No steady view of both eyes at the start. The approach will run, but the break will not be detected automatically. Stop it by hand.");
+      }
+    } else if (tracker && tracker.mode !== "landmarks") {
+      this.showNotification("No eye reading", "The landmark tracker is not running, so the break will not be detected automatically.");
+    }
+
     const res = await this.railCloud().command("start_profile", {
       fast_end_cm: fastEnd,
       target_cm: target,
@@ -2020,6 +2055,7 @@ class AccuVisApp {
       ds.railDistanceCm = s.distance_cm;
       this.updateDotHUD();
       if (this.eyeTracker) this.eyeTracker.updateCarriageDistance(ds.railDistanceCm);
+      if (measuring) tracker.setRailState({ distanceCm: s.distance_cm, moving: !!s.moving });
 
       if (s.profile_state !== "IDLE") sawProfile = true;
 
@@ -2033,25 +2069,52 @@ class AccuVisApp {
       }
       if (s.profile_state === "HELD") {
         // The rail lost contact, is standing still, and continues by itself when it is back
-        if (pillText) pillText.textContent = "Rail holding position (its link dropped). It continues by itself when contact returns.";
+        if (pillText) pillText.textContent = rh.faceHold
+          ? "Face lost: the rail is holding. It continues when both eyes are back in view."
+          : "Rail holding position (its link dropped). It continues by itself when contact returns.";
         rh.pollTimer = setTimeout(poll, 1200);
         return;
       }
       if (pillText && /holding|Lost contact/.test(pillText.textContent)) pillText.textContent = "Advancing Rail (continuing after the link came back)...";
       if (sawProfile && s.profile_state === "RETURN") {
-        giveUp(`Reached ${target.toFixed(1)} cm with no break marked. The rail is returning home.`);
+        giveUp(this.approachVerdictText(endMeasuring(), `Reached ${target.toFixed(1)} cm. The rail is returning home.`));
         return;
       }
       if (sawProfile && s.profile_state === "IDLE" && !s.moving) {
-        // Finished on its own (target reached, no break marked) or stopped by a safety rule
+        // Finished on its own (target reached) or stopped by a safety rule
         giveUp(s.stop_reason
           ? `Rail stopped: ${s.stop_reason}`
-          : `Reached ${target.toFixed(1)} cm with no break marked. The rail is back home.`);
+          : this.approachVerdictText(endMeasuring(), `Reached ${target.toFixed(1)} cm. The rail is back home.`));
         return;
       }
       rh.pollTimer = setTimeout(poll, s.moving ? 600 : 900);
     };
     rh.pollTimer = setTimeout(poll, 700);
+  }
+
+  // What to tell the operator when the approach ended without the break stopping it
+  approachVerdictText(v, tail) {
+    if (!v) return `${tail} No automatic break reading was taken.`;
+    if (v.state === "break") return `A convergence break was found at ${v.breakCm.toFixed(1)} cm (auto-stop was off). ${tail}`;
+    if (v.state === "no_break") return `No convergence break found down to the end of the range (${v.approxDeg.toFixed(0)} deg of convergence measured). ${tail}`;
+    return `NO READING: ${v.reason || "the eye tracking was not reliable enough."} No break distance was recorded. ${tail}`;
+  }
+
+  // If the face disappears during an approach the rail must not keep closing in on nobody: hold it
+  // (keeps the approach), and continue when both eyes have been back in view for a moment.
+  guardFaceDuringApproach(res) {
+    const ds = this.dotState;
+    const rh = this.railHardware;
+    if (!ds.isApproaching || !rh.enabled || rh.transport !== "cloud" || !this.eyeTracker || !this.eyeTracker.breakActive) return;
+    if (!res.detected && res.faceLostMs >= 700 && !rh.faceHold) {
+      rh.faceHold = true;
+      this.railCloud().hold();
+      const t = document.getElementById("dot-motor-status-text");
+      if (t) t.textContent = "Face lost: the rail is holding. It continues when both eyes are back in view.";
+    } else if (rh.faceHold && res.detected && res.faceSeenMs >= 1200) {
+      rh.faceHold = false;
+      this.railCloud().resume();
+    }
   }
 
   async startHardwareApproach() {
@@ -2228,8 +2291,10 @@ class AccuVisApp {
     if (btnText) btnText.textContent = 'Resume Approach';
   }
 
-  stopAndLockMeasurement(triggerReason = "Manual Stop & Lock") {
+  stopAndLockMeasurement(triggerReason = "Manual Stop & Lock", recordedOverrideCm = null) {
     this.dotState.isApproaching = false;
+    this.railHardware.faceHold = false;
+    if (this.eyeTracker && this.eyeTracker.breakActive) this.eyeTracker.endBreakDetection();
     this.dotState.convergenceLocked = true;
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
@@ -2243,7 +2308,7 @@ class AccuVisApp {
       this.railApiCall('/stop');
     }
 
-    const recordedCm = parseFloat(this.dotState.railDistanceCm.toFixed(1));
+    const recordedCm = parseFloat((typeof recordedOverrideCm === "number" ? recordedOverrideCm : this.dotState.railDistanceCm).toFixed(1));
     const recordedMm = Math.round(recordedCm * 10);
     this.dotState.recordedDistanceCm = recordedCm;
 
@@ -2585,13 +2650,19 @@ class AccuVisApp {
 
     const statusPill = document.getElementById('pip-telemetry-status');
     if (statusPill) {
-      statusPill.textContent = res.isConverged ? "Convergence Lock" : "Auto-Cropped Eye";
+      const brState = res.breakResult;
+      statusPill.textContent = brState && brState.state === "break" ? "Convergence Break"
+        : (res.detected && res.quality < 0.6 ? "Low tracking quality" : "Auto-Cropped Eye");
     }
 
-    // Auto-Stop trigger when eye tracker locks foveal convergence
-    if (res.isConverged && this.dotState.isApproaching && this.dotState.autoStop) {
-      this.stopAndLockMeasurement("Auto-Stop: Binocular Convergence Lock");
+    // Auto-Stop when the detector finds a convergence break. It reports the FIRST position where the
+    // eyes gave way, not the (later) one where the rail was when this was confirmed.
+    const br = res.breakResult;
+    if (br && br.state === "break" && this.dotState.isApproaching && this.dotState.autoStop && !this.dotState.breakHandled) {
+      this.dotState.breakHandled = true;
+      this.stopAndLockMeasurement(`Auto-Stop: convergence break at ${br.breakCm.toFixed(1)} cm`, br.breakCm);
     }
+    this.guardFaceDuringApproach(res);
   }
 
   async startCameraFeed() {

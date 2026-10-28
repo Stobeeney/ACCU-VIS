@@ -43,8 +43,9 @@ POLL_ARMED_MS = 1000      # armed, standing still
 POLL_MOVING_MS = 500      # armed and moving
 MIN_SYNC_INTERVAL_MS = 250
 
-ALLOWED_TYPES = {"arm", "disarm", "stop", "clear_stop", "calibrate", "home", "jog", "move", "start_profile"}
-MOTION_TYPES = {"calibrate", "home", "jog", "move", "start_profile"}
+ALLOWED_TYPES = {"arm", "disarm", "stop", "clear_stop", "calibrate", "home", "jog", "move", "start_profile",
+                 "hold", "resume"}
+MOTION_TYPES = {"calibrate", "home", "jog", "move", "start_profile", "hold", "resume"}
 STATE_KEYS = {"distance_cm", "moving", "calibrated", "mode", "fw", "error", "rssi", "uptime_ms",
               "profile_state", "limit_min_cm", "limit_max_cm", "stop_reason"}
 
@@ -303,7 +304,7 @@ def rail_sync(rail_id, body, now=None):
 
 def _validate_params(ctype, params):
     params = params if isinstance(params, dict) else {}
-    if ctype in ("arm", "disarm", "stop", "clear_stop", "calibrate", "home"):
+    if ctype in ("arm", "disarm", "stop", "clear_stop", "calibrate", "home", "hold", "resume"):
         return {}
     if ctype == "move":
         out = {"distance_cm": _num(params.get("distance_cm"), RAIL_MIN_CM, RAIL_MAX_CM, "distance_cm")}

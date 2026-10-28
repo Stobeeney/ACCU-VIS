@@ -80,6 +80,18 @@ class RailServiceTests(unittest.TestCase):
         out = rs.enqueue_command("rail-1", self.user, "home", now=at(2))
         self.assertTrue(out["queued"])
 
+    def test_hold_and_resume_are_queued_only_while_armed_and_not_stopped(self):
+        for t in ("hold", "resume"):
+            with self.assertRaises(ValueError):            # not armed
+                rs.enqueue_command("rail-1", self.user, t, now=at(1))
+        rs.enqueue_command("rail-1", self.user, "arm", now=at(2))
+        self.assertTrue(rs.enqueue_command("rail-1", self.user, "hold", now=at(3))["queued"])
+        self.assertTrue(rs.enqueue_command("rail-1", self.user, "resume", now=at(4))["queued"])
+        rs.enqueue_command("rail-1", self.user, "stop", now=at(5))
+        for t in ("hold", "resume"):
+            with self.assertRaises(ValueError):            # a latched stop wins over everything
+                rs.enqueue_command("rail-1", self.user, t, now=at(6))
+
     def test_arming_expires(self):
         rs.enqueue_command("rail-1", self.user, "arm", now=at(0))
         with self.assertRaises(ValueError):

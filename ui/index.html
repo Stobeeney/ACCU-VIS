@@ -791,11 +791,11 @@
               <!-- Telemetry & Symmetry Footer -->
               <div class="pip-footer-desktop">
                 <div class="pip-metric-row">
-                  <span class="pip-metric-label">Alignment Symmetry:</span>
-                  <strong id="pip-symmetry-val" class="pip-metric-val">99.4%</strong>
+                  <span class="pip-metric-label" title="How trustworthy the eye readings are right now: face found, steady, enough frames per second">Tracking Quality:</span>
+                  <strong id="pip-symmetry-val" class="pip-metric-val">--</strong>
                 </div>
                 <div class="pip-metric-bar">
-                  <div class="pip-bar-fill" id="pip-symmetry-bar" style="width: 99%;"></div>
+                  <div class="pip-bar-fill" id="pip-symmetry-bar" style="width: 0%;"></div>
                 </div>
                 <div class="pip-telemetry-row">
                   <span class="pip-pill" id="pip-telemetry-pupil">Pupil: (110, 75)</span>
@@ -1340,6 +1340,7 @@
   <div class="app-toast-container" id="app-toast-container"></div>
 
   <!-- SCRIPTS -->
+  <script src="convergence_break.js"></script>
   <script src="eye_tracker.js"></script>
   <script src="webrtc-signaling.js"></script>
   <script src="rail-cloud.js"></script>

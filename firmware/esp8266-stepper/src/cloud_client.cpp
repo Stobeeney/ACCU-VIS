@@ -59,6 +59,7 @@ uint32_t pollMs = 2000;
 
 bool armed = false;
 bool stopLatched = false;
+bool manualHold = false;     // a hold the operator asked for: only an explicit "resume" continues it
 uint32_t lastSeq = 0;
 
 struct Ack {
@@ -123,6 +124,14 @@ void execCommand(uint32_t seq, const char *type, JsonObjectConst p) {
     queueAck(seq, "stopped");
     return;
   }
+  if (strcmp(type, "hold") == 0) {
+    // Not motion, so it is allowed even when disarmed: it can only make the rail stand still
+    if (profileActive()) profilePause("operator hold");
+    if (!profileHeld()) { queueAck(seq, "rejected:no profile"); return; }
+    manualHold = true;
+    queueAck(seq, "ok");
+    return;
+  }
   if (strcmp(type, "calibrate") == 0) {
     if (busy() || profileHeld()) { queueAck(seq, "rejected:moving"); return; }   // a held profile still owns the position
     stepper.setCurrentPosition(0);
@@ -159,6 +168,11 @@ void execCommand(uint32_t seq, const char *type, JsonObjectConst p) {
     applySpeedCmPerSec(p["speed_cm_s"] | 0.0f);
     stepper.moveTo(cmToMicrosteps(target));
     railClearStopReason();
+    queueAck(seq, "ok");
+  } else if (strcmp(type, "resume") == 0) {
+    if (!profileHeld()) { queueAck(seq, "rejected:not held"); return; }
+    manualHold = false;
+    profileResume();
     queueAck(seq, "ok");
   } else if (strcmp(type, "start_profile") == 0) {
     Profile pr;
@@ -307,7 +321,8 @@ void onResponse(unsigned long now) {
   // Contact is back: continue a held profile, but only if the operator has not disarmed or
   // latched a STOP meanwhile (applyFlags above would have cancelled it). Commands below, such as
   // a STOP in this same reply, still run after this and win.
-  if (profileHeld() && armed && !stopLatched) profileResume();
+  if (!profileHeld()) manualHold = false;
+  if (profileHeld() && !manualHold && armed && !stopLatched) profileResume();
 
   JsonArrayConst cmds = doc["commands"];
   for (JsonObjectConst c : cmds) {
