@@ -3009,3 +3009,47 @@ html.logged-out #view-login {
     padding: 20px;
   }
 }
+
+/* Rail link (cloud / direct): arm, clear stop, rail id */
+.rail-hidden {
+  display: none !important;
+}
+
+.rail-cloud-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px 12px;
+  margin-top: 10px;
+}
+
+.rail-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-muted);
+}
+
+.rail-field select,
+.rail-field input {
+  font-size: 12px;
+}
+
+#btn-rail-arm[aria-pressed="true"] {
+  background: var(--primary-maroon-dark);
+  color: #FFFFFF;
+}
+
+#btn-rail-arm:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.rail-cloud-row button:focus-visible,
+.rail-cloud-row select:focus-visible,
+.rail-cloud-row input:focus-visible {
+  outline: 2px solid var(--primary-maroon);
+  outline-offset: 2px;
+}
