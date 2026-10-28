@@ -3,6 +3,10 @@
  *
  * Wiring and hardware constants: see include/rail_config.h
  *
+ * Modes (include/rail_config.h): STANDALONE_MODE (no network), RAIL_MODE_CLOUD (the hosted
+ * website controls the rail through the server; see cloud_client.cpp), or neither (legacy
+ * local access point + HTTPS API on 192.168.4.1). The comment below describes the legacy API.
+ *
  * Position convention: RAIL_HOME_CM (40.0) is the parked position farthest
  * from the patient; the carriage moves IN as the reported distance goes
  * DOWN, matching dotState.railDistanceCm in the web app (ui/app.js). There
@@ -21,8 +25,9 @@
  *   GET  /status              -> board + rail state
  *   POST /calibrate           -> mark the CURRENT physical position as 40.0cm home
  *   POST /home                -> move back to 40.0cm
- *   POST /move?distance_cm=N  -> move to an absolute distance (4-40cm)
- *   POST /jog?delta_cm=N      -> move N cm closer (+) or farther (-) from current position
+ *   POST /move?distance_cm=N[&speed_cm_s=S] -> move to an absolute distance (4-40cm);
+ *                                 speed is clamped to the ceiling and echoed back
+ *   POST /jog?delta_cm=N[&speed_cm_s=S] -> move N cm closer (+) or farther (-) from current position
  *   POST /stop                -> stop immediately, hold position
  *   POST /test                -> jog 1cm out and back; use this first to confirm
  *                                 wiring/direction before anything else
@@ -30,17 +35,23 @@
 
 #include <Arduino.h>
 #include <ESP8266WiFi.h>
-#include <ESP8266WebServerSecure.h>
 #include <AccelStepper.h>
 #include "secrets.h"
 #include "rail_config.h"
+#include "rail_core.h"
+#if !RAIL_MODE_CLOUD
+#include <ESP8266mDNS.h>
+#include <ESP8266WebServerSecure.h>
 #include "ssl_cert.h"
+#endif
 
 #ifndef LED_BUILTIN
 #define LED_BUILTIN 2
 #endif
 
+#if !RAIL_MODE_CLOUD
 BearSSL::ESP8266WebServerSecure server(443);
+#endif
 AccelStepper stepper(AccelStepper::DRIVER, STEP_PIN, DIR_PIN);
 
 bool calibrated = false;
@@ -50,6 +61,7 @@ bool calibrated = false;
 // ---------------------------------------------------------------------
 
 long cmToMicrosteps(float distanceCm) {
+  distanceCm = constrain(distanceCm, (float)RAIL_MIN_CM, (float)RAIL_MAX_CM); // never past the rail ends
   float travelledCm = RAIL_HOME_CM - distanceCm; // 0 at home, grows as it nears the patient
   return (long)lroundf(travelledCm * MICROSTEPS_PER_CM);
 }
@@ -57,6 +69,17 @@ long cmToMicrosteps(float distanceCm) {
 float microstepsToCm(long microsteps) {
   return RAIL_HOME_CM - ((float)microsteps / MICROSTEPS_PER_CM);
 }
+
+// Apply a requested approach speed (cm/s), clamped to the hardware ceiling.
+// Returns the speed actually applied. <=0 or missing -> the ceiling.
+float applySpeedCmPerSec(float requestedCmPerSec) {
+  float maxCmPerSec = STEPPER_MAX_SPEED / MICROSTEPS_PER_CM;
+  float cmPerSec = (requestedCmPerSec > 0.0f) ? min(requestedCmPerSec, maxCmPerSec) : maxCmPerSec;
+  stepper.setMaxSpeed(cmPerSec * MICROSTEPS_PER_CM);
+  return cmPerSec;
+}
+
+#if !RAIL_MODE_CLOUD   // legacy local mode: access point + HTTPS API on 192.168.4.1
 
 // ---------------------------------------------------------------------
 // HTTP helpers
@@ -85,7 +108,10 @@ void handleStatus() {
   json += "\"ok\":true,";
   json += "\"uptime_ms\":" + String(millis()) + ",";
   json += "\"ip\":\"" + WiFi.softAPIP().toString() + "\",";
+  json += "\"sta_connected\":" + String(WiFi.status() == WL_CONNECTED ? "true" : "false") + ",";
+  json += "\"sta_ip\":\"" + WiFi.localIP().toString() + "\",";
   json += "\"connected_devices\":" + String(WiFi.softAPgetStationNum()) + ",";
+  json += "\"min_cm\":" + String(RAIL_MIN_CM, 2) + ",\"max_cm\":" + String(RAIL_MAX_CM, 2) + ",";
   json += "\"calibrated\":" + String(calibrated ? "true" : "false") + ",";
   json += "\"distance_cm\":" + String(distanceCm, 2) + ",";
   json += "\"moving\":" + String(stepper.isRunning() ? "true" : "false");
@@ -101,6 +127,7 @@ void handleCalibrate() {
 
 void handleHome() {
   if (!calibrated) { sendError(409, "Not calibrated yet -- call /calibrate first"); return; }
+  applySpeedCmPerSec(0);
   stepper.moveTo(0);
   sendOk("\"target_cm\":" + String(RAIL_HOME_CM, 2));
 }
@@ -109,8 +136,9 @@ void handleMove() {
   if (!calibrated) { sendError(409, "Not calibrated yet -- call /calibrate first"); return; }
   if (!server.hasArg("distance_cm")) { sendError(400, "distance_cm query parameter is required"); return; }
   float target = constrain(server.arg("distance_cm").toFloat(), RAIL_MIN_CM, RAIL_MAX_CM);
+  float speed = applySpeedCmPerSec(server.hasArg("speed_cm_s") ? server.arg("speed_cm_s").toFloat() : 0);
   stepper.moveTo(cmToMicrosteps(target));
-  sendOk("\"target_cm\":" + String(target, 2));
+  sendOk("\"target_cm\":" + String(target, 2) + ",\"speed_cm_s\":" + String(speed, 2));
 }
 
 void handleJog() {
@@ -119,19 +147,20 @@ void handleJog() {
   float delta = server.arg("delta_cm").toFloat();
   float current = microstepsToCm(stepper.targetPosition());
   float target = constrain(current - delta, RAIL_MIN_CM, RAIL_MAX_CM);
+  float speed = applySpeedCmPerSec(server.hasArg("speed_cm_s") ? server.arg("speed_cm_s").toFloat() : 0);
   stepper.moveTo(cmToMicrosteps(target));
-  sendOk("\"target_cm\":" + String(target, 2));
+  sendOk("\"target_cm\":" + String(target, 2) + ",\"speed_cm_s\":" + String(speed, 2));
 }
 
 void handleStop() {
-  stepper.moveTo(stepper.currentPosition());
-  stepper.setSpeed(0);
+  stepper.stop(); // decelerates to a halt and holds there
   sendOk();
 }
 
 void handleTest() {
   // Small blocking back-and-forth so you can watch/listen to the motor
   // without needing calibration or the web app -- just confirms wiring.
+  if (stepper.isRunning()) { sendError(409, "Rail is moving -- /stop first"); return; }
   long start = stepper.currentPosition();
   long testDelta = (long)lroundf(1.0 * MICROSTEPS_PER_CM); // 1cm out and back
   stepper.moveTo(start + testDelta);
@@ -199,6 +228,16 @@ setInterval(refresh,2000);
 }
 
 void handleNotFound() {
+  if (server.method() == HTTP_OPTIONS) {
+    // CORS preflight. Chrome also asks permission for a public site (the
+    // hosted web app) to reach a private IP (this board): Private Network Access.
+    server.sendHeader("Access-Control-Allow-Origin", "*");
+    server.sendHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
+    server.sendHeader("Access-Control-Allow-Headers", "Content-Type");
+    server.sendHeader("Access-Control-Allow-Private-Network", "true");
+    server.send(204);
+    return;
+  }
   sendError(404, "not found");
 }
 
@@ -208,18 +247,213 @@ void handleNotFound() {
 // ---------------------------------------------------------------------
 
 void startAccessPoint() {
+#ifdef STA_SSID
+  // Router mode: join the clinic/home WiFi (so the laptop keeps internet and
+  // the hosted web app can reach this board) AND keep our own AP as a fallback.
+  WiFi.mode(WIFI_AP_STA);
+  WiFi.softAP(AP_SSID, AP_PASSWORD);
+  WiFi.begin(STA_SSID, STA_PASSWORD);
+  Serial.print("Joining WiFi '");
+  Serial.print(STA_SSID);
+  Serial.print("'");
+  unsigned long t0 = millis();
+  while (WiFi.status() != WL_CONNECTED && millis() - t0 < 15000) {
+    delay(250);
+    Serial.print(".");
+  }
+  Serial.println();
+  if (WiFi.status() == WL_CONNECTED) {
+    Serial.print("Joined. Rail address on that network: https://");
+    Serial.println(WiFi.localIP());
+    if (MDNS.begin("accuvis-rail")) Serial.println("Also reachable as https://accuvis-rail.local");
+  } else {
+    Serial.println("Could not join that WiFi; fallback AP only.");
+  }
+#else
   WiFi.mode(WIFI_AP);
   WiFi.softAP(AP_SSID, AP_PASSWORD);
+#endif
   digitalWrite(LED_BUILTIN, HIGH); // off (NodeMCU LED is active-low)
   Serial.println("Access Point started.");
   Serial.print("SSID: ");
   Serial.println(AP_SSID);
   Serial.print("Password: ");
   Serial.println(AP_PASSWORD);
-  Serial.print("Connect your phone to that WiFi, then open: https://");
+  Serial.print("Or connect your phone to that WiFi, then open: https://");
   Serial.println(WiFi.softAPIP());
   Serial.println("(accept the one-time self-signed certificate warning)");
 }
+
+#endif  // !RAIL_MODE_CLOUD
+
+// ---------------------------------------------------------------------
+// Hybrid approach profile (shared by standalone mode and the cloud relay)
+// ---------------------------------------------------------------------
+// Fast continuous sweep from home to fastEnd, then small slow steps with a dwell at
+// each stop (the phone tracks the eye while the carriage stands still), then back
+// home. Non-blocking: profileTick() runs from loop().
+
+enum ProfileState : uint8_t { PS_IDLE, PS_FAST, PS_STEP, PS_DWELL, PS_RETURN };
+
+static Profile prof;
+static ProfileState profState = PS_IDLE;
+static unsigned long profSince = 0;
+static float profCm = RAIL_HOME_CM;
+static bool profDone = false;
+static char stopReasonBuf[28] = "";
+static bool stopping = false;
+
+const char *profileStateName() {
+  switch (profState) {
+    case PS_FAST:   return "FAST";
+    case PS_STEP:   return "STEP";
+    case PS_DWELL:  return "DWELL";
+    case PS_RETURN: return "RETURN";
+    default:        return "IDLE";
+  }
+}
+
+bool profileActive() { return profState != PS_IDLE; }
+
+bool profileFinished() {
+  bool d = profDone;
+  profDone = false;
+  return d;
+}
+
+bool profileStart(const Profile &p) {
+  // Last line of defence: the server and the website validate too. NaN fails every comparison.
+  if (!(p.targetCm >= RAIL_MIN_CM && p.targetCm <= p.fastEndCm && p.fastEndCm <= RAIL_MAX_CM)) return false;
+  if (!(p.stepCm >= 0.1f && p.stepCm <= 5.0f)) return false;
+  if (!(p.fastCmS > 0.0f && p.slowCmS > 0.0f)) return false;
+  if (p.dwellMs < 200 || p.dwellMs > 10000) return false;
+
+  prof = p;
+  profCm = p.fastEndCm;
+  profDone = false;
+  float speed = applySpeedCmPerSec(p.fastCmS);
+  stepper.moveTo(cmToMicrosteps(p.fastEndCm));
+  profState = PS_FAST;
+  profSince = millis();
+  Serial.printf("Profile: fast sweep to %.1f cm at %.2f cm/s, then %.1f cm steps to %.1f cm, %lu ms dwell\n",
+                p.fastEndCm, speed, p.stepCm, p.targetCm, (unsigned long)p.dwellMs);
+  return true;
+}
+
+void profileAbort() { profState = PS_IDLE; }
+
+void railHardStop(const char *reason) {
+  profileAbort();
+  if (stopping && stepper.isRunning()) return;     // already decelerating: don't repeat
+  stepper.stop();                                  // decelerates to a halt and holds there
+  stopping = true;
+  strncpy(stopReasonBuf, reason, sizeof(stopReasonBuf) - 1);
+  stopReasonBuf[sizeof(stopReasonBuf) - 1] = '\0';
+  Serial.printf("STOP: %s\n", reason);
+}
+
+const char *railStopReason() { return stopReasonBuf; }
+void railClearStopReason() { stopReasonBuf[0] = '\0'; }
+
+void profileTick() {
+  if (stopping && !stepper.isRunning()) stopping = false;
+
+  switch (profState) {
+    case PS_IDLE:
+      return;
+    case PS_FAST:
+    case PS_STEP:
+      if (!stepper.isRunning()) {
+        profState = PS_DWELL;
+        profSince = millis();
+      }
+      break;
+    case PS_DWELL:
+      if (millis() - profSince >= prof.dwellMs) {
+        if (profCm > prof.targetCm + 0.01f) {
+          applySpeedCmPerSec(prof.slowCmS);
+          profCm = max(profCm - prof.stepCm, prof.targetCm);
+          stepper.moveTo(cmToMicrosteps(profCm));
+          profState = PS_STEP;
+          Serial.printf("Step to %.1f cm\n", profCm);
+        } else {
+          applySpeedCmPerSec(0);
+          stepper.moveTo(0);
+          profState = PS_RETURN;
+          Serial.println("Target reached, returning home...");
+        }
+        profSince = millis();
+      }
+      break;
+    case PS_RETURN:
+      if (!stepper.isRunning()) {
+        profState = PS_IDLE;
+        profDone = true;
+        Serial.println("Profile done.");
+      }
+      break;
+  }
+}
+
+#if STANDALONE_MODE
+// Standalone: no network at all. After a start delay, run one profile from the config.
+static bool saStarted = false;
+static unsigned long saBootMs = 0;
+
+void standaloneTick() {
+  if (!saStarted && millis() - saBootMs >= STANDALONE_START_DELAY_MS) {
+    Profile p = {(float)STANDALONE_SLOW_ZONE_START_CM, (float)STANDALONE_TARGET_CM, (float)STANDALONE_SLOW_STEP_CM,
+                 (float)STANDALONE_FAST_CM_S, (float)STANDALONE_SLOW_CM_S, (uint32_t)STANDALONE_DWELL_MS};
+    if (!profileStart(p)) Serial.println("Standalone profile rejected: check the values in rail_config.h");
+    saStarted = true;
+  }
+}
+
+const char *standaloneTag() { return profileActive() ? profileStateName() : (saStarted ? "DONE" : "WAIT"); }
+#endif
+
+// ---------------------------------------------------------------------
+// Serial telemetry: one line every SERIAL_TELEMETRY_MS while moving, plus a
+// line when the carriage stops. Skipped if the TX buffer lacks room so it
+// can never block (a blocked loop() would stall the stepper).
+// ---------------------------------------------------------------------
+
+#if SERIAL_TELEMETRY_MS > 0
+void printTelemetry(const char *tag) {
+  char line[120];
+  long pos = stepper.currentPosition();
+  long tgt = stepper.targetPosition();
+  int n = snprintf(line, sizeof(line),
+                   "[%7.1fs] %-7s pos=%6.2fcm (%ld st)  tgt=%6.2fcm  v=%+5.0f st/s (%4.2f cm/s)  %s\n",
+                   millis() / 1000.0, tag,
+                   microstepsToCm(pos), pos, microstepsToCm(tgt),
+                   stepper.speed(), fabsf(stepper.speed()) / MICROSTEPS_PER_CM,
+                   tgt > pos ? "IN " : (tgt < pos ? "OUT" : "---"));
+  if (n > 0 && Serial.availableForWrite() >= n) Serial.write((const uint8_t *)line, n);
+}
+
+void telemetryTick(const char *tag) {
+  static unsigned long lastMs = 0;
+  static unsigned long lastIdleMs = 0;
+  static bool wasMoving = false;
+  bool moving = stepper.isRunning();
+  unsigned long now = millis();
+  if (moving && now - lastMs >= SERIAL_TELEMETRY_MS) {
+    lastMs = now;
+    printTelemetry(tag);
+  } else if (!moving && wasMoving) {
+    printTelemetry("STOPPED");
+    lastIdleMs = now;
+  } else if (!moving && now - lastIdleMs >= 2000) {
+    // Idle heartbeat: a monitor attached late still sees the current state.
+    lastIdleMs = now;
+    printTelemetry(tag);
+  }
+  wasMoving = moving;
+}
+#else
+void telemetryTick(const char *) {}
+#endif
 
 // ---------------------------------------------------------------------
 // Setup / loop
@@ -242,30 +476,22 @@ void setup() {
   digitalWrite(MS3_PIN, HIGH);
 
   stepper.setEnablePin(ENABLE_PIN);
-  stepper.setPinsInverted(false, false, true); // ENABLE is active-LOW
+  stepper.setPinsInverted(DIR_INVERT, false, true); // ENABLE is active-LOW
   stepper.enableOutputs();
   stepper.setMaxSpeed(STEPPER_MAX_SPEED);
   stepper.setAcceleration(STEPPER_ACCEL);
 
-  // TEMPORARY boot-time wiring test: moves 1cm out and back on every power-up,
-  // before WiFi, so the motor can be verified without configuring WiFi first.
-  // Remove this block once the rail is confirmed working (use POST /test
-  // over HTTP after that instead).
-  Serial.println("Boot self-test: moving stepper 1cm out and back...");
-  Serial.println("Watch/listen now -- should be smooth and quiet both ways.");
-  Serial.println("If it just buzzes/vibrates without turning, power off and");
-  Serial.println("swap the two wires of ONE motor coil pair, then try again.");
-  delay(1500);
-  {
-    long testDelta = (long)lroundf(1.0 * MICROSTEPS_PER_CM);
-    stepper.moveTo(testDelta);
-    stepper.runToPosition();
-    delay(250);
-    stepper.moveTo(0);
-    stepper.runToPosition();
-  }
-  Serial.println("Boot self-test done.");
-
+#if STANDALONE_MODE
+  // Treat the power-up position as the 40cm home; no WiFi / server at all.
+  stepper.setCurrentPosition(0);
+  calibrated = true;
+  saBootMs = millis();
+  Serial.print("STANDALONE mode: assuming carriage is at ");
+  Serial.print(RAIL_HOME_CM, 1);
+  Serial.println("cm home. Starting in 5 seconds...");
+#elif RAIL_MODE_CLOUD
+  cloudBegin();
+#else
   startAccessPoint();
 
   server.getServer().setRSACert(new BearSSL::X509List(SSL_CERT), new BearSSL::PrivateKey(SSL_KEY));
@@ -286,9 +512,25 @@ void setup() {
   server.begin();
   Serial.println("HTTPS server started on port 443.");
   Serial.println("Not calibrated yet -- POST /calibrate once the carriage is at its physical 40cm home mark.");
+#endif
 }
 
 void loop() {
+#if STANDALONE_MODE
+  standaloneTick();
+#elif RAIL_MODE_CLOUD
+  cloudTick();
+#else
   server.handleClient();
+#ifdef STA_SSID
+  MDNS.update();
+#endif
+#endif
+  profileTick();
   stepper.run(); // must be called as often as possible for smooth, non-blocking motion
+#if STANDALONE_MODE
+  telemetryTick(standaloneTag());
+#else
+  telemetryTick(profileActive() ? profileStateName() : "MOVE");
+#endif
 }
