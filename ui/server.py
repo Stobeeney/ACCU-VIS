@@ -23,9 +23,11 @@ sys.path.insert(0, os.path.join(DIRECTORY, "database"))
 
 try:
     import db_manager
+    import rail_service
 except Exception as e:
     print(f"Warning: db_manager import error: {e}")
     db_manager = None
+    rail_service = None
 
 PORT = 8080
 
@@ -119,7 +121,7 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
     def end_headers(self):
         self.send_header('Access-Control-Allow-Origin', '*')
         self.send_header('Access-Control-Allow-Methods', 'GET, POST, OPTIONS')
-        self.send_header('Access-Control-Allow-Headers', 'Content-Type')
+        self.send_header('Access-Control-Allow-Headers', 'Content-Type, Authorization, X-Rail-Id, X-Rail-Secret')
         self.send_header('Cache-Control', 'no-cache, no-store, must-revalidate')
         super().end_headers()
 
@@ -127,7 +129,22 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
         self.send_response(200)
         self.end_headers()
 
+    def _send_json(self, code, body):
+        self.send_response(code)
+        self.send_header('Content-Type', 'application/json')
+        self.end_headers()
+        self.wfile.write(json.dumps(body, default=str).encode('utf-8'))
+
+    def _handle_rail(self, method, body):
+        parsed = urlparse(self.path)
+        query = {k: v[0] for k, v in parse_qs(parsed.query).items()}
+        code, out = rail_service.handle_request(method, parsed.path, dict(self.headers), query, body)
+        self._send_json(code, out)
+
     def do_GET(self):
+        if rail_service and self.path.startswith('/api/rail/'):
+            self._handle_rail('GET', {})
+            return
         if self.path == '/api/patients':
             self.send_response(200)
             self.send_header('Content-Type', 'application/json')
@@ -214,6 +231,10 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
         except Exception:
             payload = {}
 
+        if rail_service and (self.path.startswith('/api/rail/') or self.path == '/api/auth/logout'):
+            self._handle_rail('POST', payload)
+            return
+
         if self.path == '/api/webrtc/start':
             if db_manager:
                 try:
@@ -279,10 +300,11 @@ class AccuVisHTTPHandler(http.server.SimpleHTTPRequestHandler):
                 password = payload.get("password")
                 user = db_manager.authenticate_user(identifier, password)
                 if user:
+                    token = rail_service.create_session(user["id"]) if rail_service else None
                     self.send_response(200)
                     self.send_header('Content-Type', 'application/json')
                     self.end_headers()
-                    self.wfile.write(json.dumps({"status": "success", "user": user}).encode('utf-8'))
+                    self.wfile.write(json.dumps({"status": "success", "user": user, "token": token}).encode('utf-8'))
                 else:
                     self.send_response(401)
                     self.send_header('Content-Type', 'application/json')

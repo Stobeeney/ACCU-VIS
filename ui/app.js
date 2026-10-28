@@ -89,11 +89,33 @@ class AccuVisApp {
     // instead of only animating dotState.railDistanceCm in pure JS.
     this.railHardware = {
       enabled: false,
+      // 'cloud' = through the server (works from the hosted site, the rail joins the clinic WiFi);
+      // 'local' = straight to the rail's own WiFi (legacy bench mode).
+      transport: "cloud",
+      railId: "rail-1",
       baseUrl: "https://192.168.4.1",
       connected: false,
       calibrated: false,
+      armed: false,
+      stopLatched: false,
+      authError: false,
+      lastError: "",
+      ageS: null,
+      minCm: 4.0,
+      lastDistanceCm: null,
+      profileState: "IDLE",
+      stopReason: "",
+      speedCeilingCmS: 0.75,   // the firmware clamps every speed to this
+      cloud: null,
+      healthTimer: null,
+      healthBoostUntil: 0,
       pollTimer: null
     };
+    try {
+      const prefs = JSON.parse(localStorage.getItem("accuvis_rail_prefs") || "{}");
+      if (prefs.transport === "local" || prefs.transport === "cloud") this.railHardware.transport = prefs.transport;
+      if (typeof prefs.railId === "string" && prefs.railId) this.railHardware.railId = prefs.railId.slice(0, 64);
+    } catch (e) { /* storage unavailable: defaults are fine */ }
 
     // Camera source: 'local' (this device's webcam) or 'phone' (a phone paired by
     // a 6-digit code over WebRTC; see webrtc-signaling.js + camera.html).
@@ -225,6 +247,7 @@ class AccuVisApp {
         this.eyeTracker.stop();
       }
       this.disconnectPhoneCamera();
+      this.stopRailHealthPoll();
     }
   }
 
@@ -1376,6 +1399,7 @@ class AccuVisApp {
       if (res.ok && data.status === 'success') {
         this.currentUser = data.user;
         localStorage.setItem('accuvis_user', JSON.stringify(data.user));
+        if (data.token) localStorage.setItem('accuvis_token', data.token);
         this.updateUserInterface();
         this.showNotification("Login Successful", `Welcome back, ${data.user.full_name}!`);
         this.switchView('dashboard');
@@ -1457,6 +1481,13 @@ class AccuVisApp {
   }
 
   logout() {
+    const token = this.getAuthToken();
+    if (token) {
+      // End the server-side session too (best effort: the token also expires by itself)
+      fetch('/api/auth/logout', { method: 'POST', headers: { Authorization: `Bearer ${token}` } }).catch(() => {});
+    }
+    try { localStorage.removeItem('accuvis_token'); } catch (e) { /* ignore */ }
+    this.stopRailHealthPoll();
     this.currentUser = null;
     localStorage.removeItem('accuvis_user');
     this.updateUserInterface();
@@ -1639,6 +1670,7 @@ class AccuVisApp {
 
   async railApiCall(path, params = {}) {
     if (!this.railHardware.enabled) return null;
+    if (this.railHardware.transport === "cloud") return this.railCloudCall(path, params);
     const qs = Object.keys(params).length
       ? "?" + new URLSearchParams(params).toString()
       : "";
@@ -1660,11 +1692,15 @@ class AccuVisApp {
   }
 
   toggleRailHardware(enabled) {
-    this.railHardware.enabled = enabled;
+    const rh = this.railHardware;
+    rh.enabled = enabled;
     if (enabled) {
       this.railApiCall("/status");
+      this.startRailHealthPoll();
     } else {
-      this.railHardware.connected = false;
+      rh.connected = false;
+      rh.armed = false;
+      this.stopRailHealthPoll();
       this.updateRailHardwareStatusUI();
     }
   }
@@ -1684,24 +1720,334 @@ class AccuVisApp {
   }
 
   updateRailHardwareStatusUI() {
+    const rh = this.railHardware;
     const el = document.getElementById("rail-hardware-status");
-    if (!el) return;
-    if (!this.railHardware.enabled) {
-      el.textContent = "Simulation mode";
-      el.className = "rail-hw-status idle";
-    } else if (!this.railHardware.connected) {
-      el.textContent = "Not connected -- check WiFi/cert";
-      el.className = "rail-hw-status error";
-    } else if (!this.railHardware.calibrated) {
-      el.textContent = "Connected -- not calibrated yet";
-      el.className = "rail-hw-status warn";
-    } else {
-      el.textContent = "Connected & calibrated";
-      el.className = "rail-hw-status ok";
+    if (el) {
+      let text;
+      let cls;
+      if (!rh.enabled) {
+        text = "Simulation mode";
+        cls = "idle";
+      } else if (rh.transport === "cloud") {
+        if (rh.authError) {
+          text = "Sign out and sign in again to control the rail";
+          cls = "error";
+        } else if (!rh.connected && rh.lastError) {
+          text = rh.lastError;
+          cls = "error";
+        } else if (!rh.connected) {
+          text = rh.ageS == null
+            ? "Rail offline: it has not checked in yet"
+            : `Rail offline: last check-in ${Math.round(rh.ageS)} s ago`;
+          cls = "error";
+        } else if (rh.stopLatched) {
+          text = "STOP latched: press Clear Stop to continue";
+          cls = "warn";
+        } else if (!rh.armed) {
+          text = "Rail online: press Arm to allow movement";
+          cls = "warn";
+        } else if (!rh.calibrated) {
+          text = "Armed: calibrate with the carriage at the 40 cm mark";
+          cls = "warn";
+        } else {
+          text = "Armed & calibrated";
+          cls = "ok";
+        }
+      } else if (!rh.connected) {
+        text = "Not connected -- check WiFi/cert";
+        cls = "error";
+      } else if (!rh.calibrated) {
+        text = "Connected -- not calibrated yet";
+        cls = "warn";
+      } else {
+        text = "Connected & calibrated";
+        cls = "ok";
+      }
+      el.textContent = text;
+      el.className = "rail-hw-status " + cls;
     }
+    this.updateRailCloudControls();
+  }
+
+  // =========================================================================
+  // RAIL LINK: "cloud" (through the server; default) or "local" (the rail's own WiFi)
+  // The cloud link is AccuVisRailCloud (rail-cloud.js): commands are queued on the server and
+  // the rail picks them up at its next check-in, so a command can take a second or two.
+  // =========================================================================
+
+  getAuthToken() {
+    try { return localStorage.getItem("accuvis_token") || ""; } catch (e) { return ""; }
+  }
+
+  railCloud() {
+    const rh = this.railHardware;
+    if (!rh.cloud || rh.cloud.railId !== rh.railId) {
+      rh.cloud = new AccuVisRailCloud({ railId: rh.railId, getToken: () => this.getAuthToken() });
+    }
+    return rh.cloud;
+  }
+
+  noteCloudProblem(result) {
+    const rh = this.railHardware;
+    rh.connected = false;
+    rh.armed = false;
+    rh.authError = !!result.authError;
+    rh.lastError = result.error || "";
+    this.updateRailHardwareStatusUI();
+  }
+
+  applyCloudStatus(status) {
+    const rh = this.railHardware;
+    if (!status || !status.ok) {
+      this.noteCloudProblem(status || { error: "No answer from the server." });
+      return null;
+    }
+    const local = AccuVisRailCloud.toLocalStatus(status);
+    rh.authError = false;
+    rh.lastError = "";
+    rh.connected = status.online;
+    rh.armed = status.armed;
+    rh.stopLatched = status.stopLatched;
+    rh.calibrated = local.calibrated;
+    rh.minCm = local.min_cm;
+    rh.ageS = status.ageS;
+    rh.profileState = local.profile_state;
+    rh.stopReason = local.stop_reason;
+    rh.lastDistanceCm = local.distance_cm;
+    this.updateRailHardwareStatusUI();
+    return local;
+  }
+
+  // Same answers as the old direct rail API, so the approach/jog/home code needs no changes.
+  async railCloudCall(path, params = {}) {
+    const rh = this.railHardware;
+    const client = this.railCloud();
+    const speed = params.speed_cm_s ? { speed_cm_s: Number(params.speed_cm_s) } : {};
+    let result;
+
+    if (path === "/status") return this.applyCloudStatus(await client.status());
+    if (path === "/stop") result = await client.stop();
+    else if (path === "/calibrate") result = await client.command("calibrate");
+    else if (path === "/home") {
+      if (rh.stopLatched) await client.clearStop();   // "Reset" is an explicit operator action
+      result = await client.command("home");
+    } else if (path === "/move") {
+      result = await client.command("move", { distance_cm: Number(params.distance_cm), ...speed });
+    } else if (path === "/jog") {
+      result = await client.command("jog", { delta_cm: Number(params.delta_cm), ...speed });
+    } else {
+      return null;
+    }
+
+    if (result.authError || result.network) {
+      this.noteCloudProblem(result);
+      return null;
+    }
+    const reply = { ok: !!result.ok };
+    if (!result.ok) {
+      reply.error = result.error || "The rail command failed.";
+      rh.lastError = reply.error;
+    } else {
+      rh.lastError = "";
+      if (path === "/calibrate") rh.calibrated = true;
+      if (path === "/move") {
+        reply.target_cm = Number(params.distance_cm);
+        reply.speed_cm_s = Math.min(Number(params.speed_cm_s) || rh.speedCeilingCmS, rh.speedCeilingCmS);
+      }
+      if (path === "/jog" && typeof rh.lastDistanceCm === "number") {
+        reply.target_cm = Math.max(rh.minCm, Math.min(40, rh.lastDistanceCm - Number(params.delta_cm)));
+      }
+    }
+    this.updateRailHardwareStatusUI();
+    return reply;
+  }
+
+  // Keeps the on-screen rail state fresh. Slow on purpose (every 5 s, faster right after arming) and
+  // paused while the tab is hidden: every request counts against the hosting plan.
+  startRailHealthPoll() {
+    const rh = this.railHardware;
+    this.stopRailHealthPoll();
+    if (!rh.enabled || rh.transport !== "cloud") return;
+    const tick = async () => {
+      if (!rh.enabled || rh.transport !== "cloud") return;
+      if (!this.dotState.isApproaching && !document.hidden) await this.railApiCall("/status");
+      rh.healthTimer = setTimeout(tick, rh.healthBoostUntil > Date.now() ? 1500 : 5000);
+    };
+    rh.healthTimer = setTimeout(tick, 1000);
+  }
+
+  stopRailHealthPoll() {
+    const rh = this.railHardware;
+    if (rh.healthTimer) clearTimeout(rh.healthTimer);
+    rh.healthTimer = null;
+  }
+
+  persistRailPrefs() {
+    try {
+      localStorage.setItem("accuvis_rail_prefs", JSON.stringify({
+        transport: this.railHardware.transport,
+        railId: this.railHardware.railId
+      }));
+    } catch (e) { /* optional */ }
+  }
+
+  setRailTransport(transport) {
+    const rh = this.railHardware;
+    rh.transport = transport === "local" ? "local" : "cloud";
+    rh.connected = false;
+    rh.armed = false;
+    rh.authError = false;
+    rh.lastError = "";
+    this.persistRailPrefs();
+    this.stopRailHealthPoll();
+    this.syncRailPanelUI();
+    if (rh.enabled) this.railApiCall("/status");
+  }
+
+  setRailId(id) {
+    const rh = this.railHardware;
+    rh.railId = (id || "").trim().slice(0, 64) || "rail-1";
+    rh.cloud = null;
+    rh.connected = false;
+    rh.armed = false;
+    this.persistRailPrefs();
+    if (rh.enabled && rh.transport === "cloud") this.railApiCall("/status");
+    else this.updateRailHardwareStatusUI();
+  }
+
+  syncRailPanelUI() {
+    const rh = this.railHardware;
+    const withEl = (id, fn) => { const el = document.getElementById(id); if (el) fn(el); };
+    withEl("chk-rail-hardware", (el) => { el.checked = rh.enabled; });
+    withEl("rail-transport", (el) => { el.value = rh.transport; });
+    withEl("rail-id-input", (el) => { el.value = rh.railId; });
+    withEl("rail-hardware-url", (el) => el.classList.toggle("rail-hidden", rh.transport === "cloud"));
+    withEl("rail-cloud-row", (el) => el.classList.toggle("rail-hidden", rh.transport !== "cloud"));
+    this.updateRailHardwareStatusUI();
+    if (rh.enabled && rh.transport === "cloud") this.startRailHealthPoll();
+  }
+
+  updateRailCloudControls() {
+    const rh = this.railHardware;
+    const armBtn = document.getElementById("btn-rail-arm");
+    if (armBtn) {
+      armBtn.textContent = rh.armed ? "Disarm" : "Arm rail";
+      armBtn.disabled = !rh.enabled;
+      armBtn.setAttribute("aria-pressed", rh.armed ? "true" : "false");
+    }
+    const clearBtn = document.getElementById("btn-rail-clear-stop");
+    if (clearBtn) clearBtn.classList.toggle("rail-hidden", !(rh.transport === "cloud" && rh.stopLatched));
+  }
+
+  async toggleRailArm() {
+    const rh = this.railHardware;
+    if (!rh.enabled || rh.transport !== "cloud") return;
+    const wasArmed = rh.armed;
+    const res = wasArmed ? await this.railCloud().disarm() : await this.railCloud().arm();
+    if (!res.ok) { this.noteCloudProblem(res); return; }
+    if (!wasArmed) rh.healthBoostUntil = Date.now() + 40000;   // look more often while the rail notices
+    await this.railApiCall("/status");
+    this.showNotification(
+      wasArmed ? "Rail disarmed" : "Rail armed",
+      wasArmed
+        ? "Movement is disabled."
+        : "Armed for 10 minutes. The rail notices within about 20 seconds, then answers within a second."
+    );
+  }
+
+  async clearRailStop() {
+    const rh = this.railHardware;
+    if (!rh.enabled) return;
+    const res = await this.railCloud().clearStop();
+    if (!res.ok) { this.noteCloudProblem(res); return; }
+    await this.railApiCall("/status");
+  }
+
+  // Cloud approach: the firmware runs the whole fast-then-stepped profile by itself; the page
+  // only starts it, watches it and stops it. A slow or lost connection can't disturb the motion.
+  async startCloudApproach() {
+    const ds = this.dotState;
+    const rh = this.railHardware;
+    const giveUp = (message) => {
+      ds.isApproaching = false;
+      const text = document.getElementById("dot-motor-status-text");
+      if (text) text.textContent = message;
+      const pill = document.getElementById("dot-motor-status-pill");
+      if (pill) pill.className = "dot-status-pill idle";
+      const btnText = document.getElementById("btn-start-text");
+      if (btnText) btnText.textContent = "Start Stepper Approach";
+    };
+
+    const st = await this.railApiCall("/status");
+    if (!st || !st.ok) return giveUp(rh.lastError || "Rail offline. Check that it is powered and on WiFi.");
+    if (st.stop_latched) return giveUp("A stop is latched. Press Clear Stop first.");
+    if (!st.armed) return giveUp("Rail is not armed. Press Arm first.");
+    if (!st.calibrated) return giveUp("Rail not calibrated. Put the carriage at 40 cm and press Calibrate.");
+
+    const target = Math.max(ds.autoStop ? ds.breakDistanceCm : 4.0, st.min_cm);
+    const fastEnd = ds.hybridSteps ? Math.min(40, Math.max(ds.slowZoneStartCm, target)) : target;
+    const res = await this.railCloud().command("start_profile", {
+      fast_end_cm: fastEnd,
+      target_cm: target,
+      step_cm: ds.slowStepCm,
+      dwell_ms: ds.slowDwellMs,
+      fast_cm_s: ds.speedCmPerSec,
+      slow_cm_s: ds.slowSpeedCmPerSec
+    });
+    if (!res.ok) {
+      if (res.authError || res.network) this.noteCloudProblem(res);
+      return giveUp(res.error || "The rail did not start.");
+    }
+
+    const pillText = document.getElementById("dot-motor-status-text");
+    const fastSpeed = Math.min(ds.speedCmPerSec, rh.speedCeilingCmS);
+    if (pillText) pillText.textContent = `Advancing Rail (${fastSpeed.toFixed(2)} cm/s, then steps below ${fastEnd.toFixed(0)} cm)...`;
+
+    let sawProfile = false;
+    let misses = 0;
+    const poll = async () => {
+      if (!ds.isApproaching) return;
+      const s = await this.railApiCall("/status");
+      if (!s || !s.ok) {
+        // The rail stops itself after 3 s without contact; give the link a few tries
+        if (++misses >= 4) return giveUp("Lost contact with the rail. It stops itself when contact is lost.");
+        if (pillText) pillText.textContent = "Waiting for the rail to answer...";
+        rh.pollTimer = setTimeout(poll, 1500);
+        return;
+      }
+      misses = 0;
+      ds.railDistanceCm = s.distance_cm;
+      this.updateDotHUD();
+      if (this.eyeTracker) this.eyeTracker.updateCarriageDistance(ds.railDistanceCm);
+
+      if (s.profile_state !== "IDLE") sawProfile = true;
+
+      if (ds.autoStop && ds.railDistanceCm <= ds.breakDistanceCm + 0.05) {
+        this.stopAndLockMeasurement(`Auto-Stop (Convergence Break at ${ds.breakDistanceCm.toFixed(1)} cm)`);
+        return;
+      }
+      if (s.stop_latched) {
+        this.stopAndLockMeasurement("Rail stopped");
+        return;
+      }
+      if (sawProfile && s.profile_state === "RETURN") {
+        giveUp(`Reached ${target.toFixed(1)} cm with no break marked. The rail is returning home.`);
+        return;
+      }
+      if (sawProfile && s.profile_state === "IDLE" && !s.moving) {
+        // Finished on its own (target reached, no break marked) or stopped by a safety rule
+        giveUp(s.stop_reason
+          ? `Rail stopped: ${s.stop_reason}`
+          : `Reached ${target.toFixed(1)} cm with no break marked. The rail is back home.`);
+        return;
+      }
+      rh.pollTimer = setTimeout(poll, s.moving ? 600 : 900);
+    };
+    rh.pollTimer = setTimeout(poll, 700);
   }
 
   async startHardwareApproach() {
+    if (this.railHardware.transport === "cloud") return this.startCloudApproach();
     const ds = this.dotState;
     // The firmware clamps every move to its travel limits (min_cm in /status).
     // Aim for what it can really reach so the step loop always terminates.
@@ -2150,6 +2496,7 @@ class AccuVisApp {
     if (btnMirror) btnMirror.classList.toggle('active', this.dotState.cameraMirrored);
 
     this.syncEyeSelectorUI();
+    this.syncRailPanelUI();
     if (this.eyeTracker) this.updateTrackerStatus(this.eyeTracker.mode);
 
     const sourceMode = this.cameraSourceState.mode;

@@ -15,6 +15,7 @@ import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "database"))
 import db_manager  # noqa: E402
+import rail_service  # noqa: E402
 
 from flask import Flask, request, jsonify  # noqa: E402
 
@@ -25,7 +26,7 @@ app = Flask(__name__)
 def add_cors_headers(response):
     response.headers['Access-Control-Allow-Origin'] = '*'
     response.headers['Access-Control-Allow-Methods'] = 'GET, POST, OPTIONS'
-    response.headers['Access-Control-Allow-Headers'] = 'Content-Type'
+    response.headers['Access-Control-Allow-Headers'] = 'Content-Type, Authorization'
     response.headers['Cache-Control'] = 'no-cache, no-store, must-revalidate'
     return response
 
@@ -72,7 +73,9 @@ def auth_login():
     password = payload.get("password")
     user = db_manager.authenticate_user(identifier, password)
     if user:
-        return jsonify({"status": "success", "user": user}), 200
+        # Server-side session token (used by the rail relay). Additive: older clients ignore it.
+        token = rail_service.create_session(user["id"])
+        return jsonify({"status": "success", "user": user, "token": token}), 200
     return jsonify({"status": "error", "message": "Invalid email/username or password."}), 401
 
 
@@ -144,6 +147,18 @@ def webrtc_poll():
         return jsonify(rows), 200
     except ValueError as e:
         return jsonify({"status": "error", "message": str(e)}), 400
+
+
+@app.route('/api/rail/<path:rest>', methods=['GET', 'POST', 'OPTIONS'])
+@app.route('/api/auth/logout', methods=['POST', 'OPTIONS'])
+def rail_routes(rest=None):
+    """Rail relay + logout: all logic lives in rail_service (shared with server.py)."""
+    if request.method == 'OPTIONS':
+        return '', 200
+    code, body = rail_service.handle_request(
+        request.method, request.path, dict(request.headers), request.args.to_dict(),
+        request.get_json(silent=True) or {})
+    return jsonify(body), code
 
 
 @app.errorhandler(404)

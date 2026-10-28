@@ -856,10 +856,28 @@
                   <input type="checkbox" id="chk-rail-hardware" onchange="app.toggleRailHardware(this.checked)">
                   <span>Use Real Hardware (ESP8266 Rail)</span>
                 </label>
-                <input type="text" id="rail-hardware-url" class="form-pill-input" value="https://192.168.4.1"
-                  onchange="app.setRailHardwareUrl(this.value)" placeholder="https://192.168.4.1" style="width: 160px;">
+                <input type="text" id="rail-hardware-url" class="form-pill-input rail-hidden" value="https://192.168.4.1"
+                  onchange="app.setRailHardwareUrl(this.value)" placeholder="https://192.168.4.1" aria-label="Rail address (direct mode)" style="width: 160px;">
                 <button class="btn-stepper-reset" onclick="app.calibrateRailHardware()">Calibrate Rail</button>
-                <span id="rail-hardware-status" class="rail-hw-status idle">Simulation mode</span>
+                <span id="rail-hardware-status" class="rail-hw-status idle" role="status" aria-live="polite">Simulation mode</span>
+              </div>
+
+              <!-- Rail link: through the server (cloud) or straight to the rail's own WiFi (direct) -->
+              <div class="rail-cloud-row" id="rail-cloud-row">
+                <label class="rail-field" for="rail-transport">Rail link
+                  <select id="rail-transport" class="form-pill-input" onchange="app.setRailTransport(this.value)">
+                    <option value="cloud">Cloud (through the server)</option>
+                    <option value="local">Direct (rail's own WiFi)</option>
+                  </select>
+                </label>
+                <label class="rail-field" for="rail-id-input">Rail ID
+                  <input type="text" id="rail-id-input" class="form-pill-input" value="rail-1" maxlength="64"
+                    autocomplete="off" spellcheck="false" onchange="app.setRailId(this.value)" style="width: 120px;">
+                </label>
+                <button type="button" id="btn-rail-arm" class="pip-btn camera-source-btn" aria-pressed="false"
+                  onclick="app.toggleRailArm()" title="Movement is only allowed while the rail is armed (10 minutes)">Arm rail</button>
+                <button type="button" id="btn-rail-clear-stop" class="pip-btn camera-source-btn rail-hidden"
+                  onclick="app.clearRailStop()" title="A stop stays latched until you clear it">Clear Stop</button>
               </div>
             </div>
           </div>
@@ -1321,6 +1339,7 @@
   <!-- SCRIPTS -->
   <script src="eye_tracker.js"></script>
   <script src="webrtc-signaling.js"></script>
+  <script src="rail-cloud.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
