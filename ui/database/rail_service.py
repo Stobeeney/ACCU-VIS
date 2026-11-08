@@ -51,6 +51,9 @@ STATE_KEYS = {"distance_cm", "moving", "calibrated", "mode", "fw", "error", "rss
 
 RAIL_MIN_CM = 4.0
 RAIL_MAX_CM = 40.0
+# Profile endpoints may be as close as 2 cm. The web app checks the live
+# ESP8266-reported travel limit before enqueueing; firmware clamps again.
+RAIL_PROFILE_MIN_CM = 2.0
 
 
 # ---------------------------------------------------------------------------
@@ -318,8 +321,8 @@ def _validate_params(ctype, params):
         return out
     if ctype == "start_profile":
         out = {
-            "fast_end_cm": _num(params.get("fast_end_cm"), RAIL_MIN_CM, RAIL_MAX_CM, "fast_end_cm", 30.0),
-            "target_cm": _num(params.get("target_cm"), RAIL_MIN_CM, RAIL_MAX_CM, "target_cm", 20.0),
+            "fast_end_cm": _num(params.get("fast_end_cm"), RAIL_PROFILE_MIN_CM, RAIL_MAX_CM, "fast_end_cm", 30.0),
+            "target_cm": _num(params.get("target_cm"), RAIL_PROFILE_MIN_CM, RAIL_MAX_CM, "target_cm", 20.0),
             "step_cm": _num(params.get("step_cm"), 0.1, 5.0, "step_cm", 0.5),
             "dwell_ms": _num(params.get("dwell_ms"), 200, 10000, "dwell_ms", 2000),
             "fast_cm_s": _num(params.get("fast_cm_s"), 0.05, 3.0, "fast_cm_s", 0.75),

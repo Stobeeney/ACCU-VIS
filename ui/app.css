@@ -1857,11 +1857,45 @@ html.logged-out #view-login {
 
 .rail-track-labels {
   display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 8px;
   justify-content: space-between;
   font-size: 11.5px;
   font-weight: 700;
   color: var(--text-muted);
   margin-bottom: 6px;
+}
+
+.target-endpoint-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  color: var(--text-muted);
+  white-space: nowrap;
+}
+
+.target-endpoint-control select {
+  height: 28px;
+  padding: 2px 8px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-pill);
+  background: var(--input-bg);
+  color: var(--primary-maroon);
+  font: inherit;
+  font-weight: 700;
+}
+
+.target-limit-status {
+  min-height: 14px;
+  margin: -2px 0 4px;
+  color: var(--text-muted);
+  font-size: 10px;
+  text-align: right;
+}
+
+.target-limit-status.target-limit-blocked {
+  color: var(--status-red, #B42318);
 }
 
 .rail-track-groove {

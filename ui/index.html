@@ -169,8 +169,8 @@
           </div>
 
           <!-- Hardware Status Chips -->
-          <div class="telemetry-chip" title="40cm Linear Carriage Position">
-            <span class="telemetry-label">Rail:</span>
+          <div class="telemetry-chip" title="Calibrated fixation target distance, 40 cm home to 20 cm limit">
+            <span class="telemetry-label">Target:</span>
             <strong class="telemetry-val" id="topbar-rail-val">40.0cm</strong>
           </div>
 
@@ -695,7 +695,7 @@
         <section id="view-dot-measure" class="app-view">
           <div class="desktop-view-header">
             <div>
-              <div class="stage-tag-badge" id="dot-stage-tag-badge">Near Point of Convergence &bull; 40cm Stepper Rail</div>
+              <div class="stage-tag-badge" id="dot-stage-tag-badge">Near Point of Convergence &bull; 40–20cm Target Rail</div>
               <h1 class="desktop-view-title" id="dot-patient-tag">No Patient Selected</h1>
             </div>
             <div class="header-action-group">
@@ -704,7 +704,7 @@
             </div>
           </div>
 
-          <!-- Central Desktop Stage: Camera view & distance (fixation dot is shown on the camera phone) -->
+          <!-- Fixed camera tracks the eyes while the carriage-mounted fixation target moves. -->
           <div class="dot-desktop-stage-grid">
             
             <!-- CAMERA VIEW & DISTANCE -->
@@ -712,7 +712,7 @@
               <div class="pip-header-desktop">
                 <div class="pip-title-col">
                   <span class="pip-title">Real-Time Eye Tracking &bull; Gaze HUD</span>
-                  <span class="pip-sub">Computer vision pupil vector fitting</span>
+                  <span class="pip-sub">Stationary camera tracks the eyes following the moving fixation target</span>
                 </div>
 
                 <div class="pip-controls-group">
@@ -725,7 +725,7 @@
                 </div>
               </div>
 
-              <!-- Live carriage-to-eye distance -->
+              <!-- Live calibrated fixation-target-to-eye distance -->
               <div class="distance-readout-bar">
                 <div class="hud-digital-readout">
                   <span class="hud-number" id="dot-hud-cm">40.0</span>
@@ -808,13 +808,21 @@
 
           <!-- FULL-WIDTH BOTTOM STEPPER MOTOR CONTROL DECK -->
           <div class="dot-control-deck-desktop">
-            <!-- 40cm Rail Track Visualizer -->
+            <!-- Calibrated 40–20cm fixation target track -->
             <div class="rail-track-visualizer">
               <div class="rail-track-labels">
-                <span>Chin Rest (0.0 cm)</span>
-                <span id="rail-carriage-label">Carriage: 40.0 cm</span>
-                <span>Home Position (40.0 cm)</span>
+                <label class="target-endpoint-control" for="target-limit-select">
+                  Chin rest endpoint
+                  <select id="target-limit-select" onchange="app.setTargetLimit(this.value)" aria-label="Closest fixation target distance">
+                    <option value="20">20 cm</option>
+                    <option value="4">4 cm</option>
+                    <option value="2">2 cm</option>
+                  </select>
+                </label>
+                <span id="rail-carriage-label">Fixation target: 40.0 cm</span>
+                <span>Home position (40.0 cm)</span>
               </div>
+              <div id="target-limit-status" class="target-limit-status" role="status" aria-live="polite">Simulation endpoint: 20 cm</div>
               <div class="rail-track-groove">
                 <div class="rail-track-fill" id="rail-track-fill" style="width: 100%;"></div>
                 <div class="rail-carriage-cursor" id="rail-carriage-cursor" style="left: 100%;">
@@ -1242,10 +1250,10 @@
       </div>
 
       <div style="text-align:center; padding:18px 0; background:var(--input-bg); border-radius:var(--radius-lg); margin-bottom:16px;">
-        <span style="font-size:38px; font-weight:800; color:var(--primary-maroon);" id="res-dot-dist-val">12.4</span>
+        <span style="font-size:38px; font-weight:800; color:var(--primary-maroon);" id="res-dot-dist-val">20.0</span>
         <span style="font-size:16px; font-weight:700; color:var(--text-muted);">cm</span>
-        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="res-dot-dist-mm">124 mm from Cornea</div>
-        <div id="res-dot-verdict-badge" class="status-badge-green">Normal Near Point of Convergence</div>
+        <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="res-dot-dist-mm">200 mm target-to-eye distance</div>
+        <div id="res-dot-verdict-badge" class="status-badge-orange">Measurement result pending</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:10px; padding:0 8px;" id="res-dot-clinical-note"></div>
         <div style="font-size:10px; color:var(--text-muted); margin-top:6px; text-transform:uppercase; letter-spacing:0.4px;" id="res-dot-trigger"></div>
       </div>

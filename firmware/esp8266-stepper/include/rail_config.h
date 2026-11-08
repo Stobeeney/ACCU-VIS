@@ -64,20 +64,17 @@
 
 #define MICROSTEPS_PER_CM ((STEPS_PER_REV * MICROSTEPS) / (LEAD_SCREW_PITCH_MM / 10.0))
 
-// Matches the web app's dotState.railDistanceCm convention: 40.0cm is the
-// parked "home" position (farthest from the patient), the carriage moves
-// IN as this number goes DOWN toward the ~4cm clinical break/limit.
+// Matches the web app's calibrated target-distance convention: 40.0cm is the
+// parked home position, and the carriage moves the fixation target toward the
+// patient as this number goes down to the selected website endpoint (20, 4 or 2cm).
 #define RAIL_HOME_CM 40.0
 #define RAIL_MAX_CM  40.0
 
-// How far the carriage can safely travel IN from the 40cm home mark before
-// it would hit the end of the rail / the motor. The rail is 44cm end to end,
-// but the carriage body and end margins take part of that. MEASURE IT: park
-// at home, push the carriage by hand to the near end, subtract ~1cm of
-// margin. Until measured, 30cm is deliberately conservative (min = 10cm).
-// Every move is clamped to this in firmware, so it can never be driven
-// past it by the web app or the standalone sequence.
-#define RAIL_USABLE_TRAVEL_CM 20.0  // TEMP: verified 20cm travel (min 20cm) until the full usable travel is measured
+// Software travel envelope required by the website's 20, 4 and 2cm endpoint choices.
+// The website selects the approach endpoint; this firmware floor permits the closest option.
+// This does not verify physical clearance or replace a mechanical end-stop. Validate the
+// rail's full travel and stop margin before moving the target carriage near a person.
+#define RAIL_USABLE_TRAVEL_CM 38.0
 #define RAIL_MIN_CM (RAIL_HOME_CM - RAIL_USABLE_TRAVEL_CM)
 
 // Motor direction. If "closer" moves the carriage AWAY from the patient,

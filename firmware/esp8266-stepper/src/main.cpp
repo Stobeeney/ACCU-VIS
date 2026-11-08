@@ -25,7 +25,7 @@
  *   GET  /status              -> board + rail state
  *   POST /calibrate           -> mark the CURRENT physical position as 40.0cm home
  *   POST /home                -> move back to 40.0cm
- *   POST /move?distance_cm=N[&speed_cm_s=S] -> move to an absolute distance (4-40cm);
+ *   POST /move?distance_cm=N[&speed_cm_s=S] -> move to an absolute distance (RAIL_MIN_CM-40cm);
  *                                 speed is clamped to the ceiling and echoed back
  *   POST /jog?delta_cm=N[&speed_cm_s=S] -> move N cm closer (+) or farther (-) from current position
  *   POST /stop                -> stop immediately, hold position

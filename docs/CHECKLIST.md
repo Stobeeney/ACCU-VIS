@@ -3,11 +3,11 @@
 Living checklist for the NPC/NPA rail, the web app and the backend. Tick items as they are done and verified (not just written).
 Owners follow the team roles: **Optimus** hardware/firmware, **Takumi** backend/security, **Bi** front end, **Shinra** tracking/CV, **Verity** QA, **Nexus** decisions.
 
-Last reviewed: 2026-10-27. Status below reflects what was verified at that date.
+Last reviewed: 2026-11-08. The calibrated 40–20 cm range is user-confirmed. Firmware is being configured to permit the website's 20, 4 and 2 cm endpoints; 4 cm and 2 cm physical travel remain unmeasured and unverified.
 
 ## 0. Design facts everything depends on
 
-- The **phone camera is mounted on the motor-driven rail carriage** and moves with it. Camera-to-eye distance = rail distance (40 cm home, 4 cm minimum).
+- The **camera is stationary** and tracks the eyes. The motor-driven carriage carries the fixation target. The rail UI offers 20, 4 and 2 cm endpoints; the selected endpoint sets the approach target, while firmware permits a software floor of 2 cm. Only 40–20 cm is user-confirmed; physical travel below 20 cm remains unverified. Rail distance must not be used to scale camera geometry.
 - Approach is a **hybrid**: fast continuous sweep from 40 cm to the slow zone (20 cm), then small slow steps with a dwell at each stop while the tracker reads the eye.
 - Rail position is **open-loop** (no limit switch yet). 40 cm = parked home. `1 cm = 800 microsteps` (200 steps x 16 microsteps / 4 cm per rev, from the measured ~40 mm per revolution; earlier assumed 8 mm).
 - Speed ceiling in firmware: `RAIL_MAX_SPEED_CM_S = 0.75` (600 steps/s). The app's 0.8 / 1.5 / 2.5 cm/s pills are clamped to this.
@@ -16,13 +16,14 @@ Last reviewed: 2026-10-27. Status below reflects what was verified at that date.
 
 Owner: Optimus (with Verity sign-off)
 
-- [ ] Hard mechanical end-stop at the patient end, positioned so the **phone can never reach the eye** (measure from the phone's front edge, not the lens), plus margin
+- [ ] Hard mechanical end-stop at the patient end, preventing the **target carriage** from contacting the patient, with a measured safety margin
+- [ ] Before operating at 4 cm or 2 cm, measure and mechanically limit the target carriage's full travel to that endpoint with a safe margin; the firmware limit is software-only
 - [ ] Home limit switch wired (pin chosen, debounce, normally-closed so a broken wire reads as triggered)
 - [ ] Homing routine on boot/connect replaces manual `/calibrate` (keep `/calibrate` as engineering override only)
 - [ ] Physical e-stop that cuts motor power (VMOT), independent of the ESP8266
 - [ ] Firmware watchdog: if no request from the app for ~2 s while moving, stop (browser crash / WiFi drop)
 - [ ] Speed limit near the face (zone-based cap in firmware, not only in the app)
-- [ ] Defined offset between carriage datum and corneal plane documented (what exactly does "4 cm" measure?)
+- [ ] Defined offset between the carriage's distance datum, the red target point and the corneal reference plane
 - [ ] Standalone mode only used with the carriage verified at 40 cm before power-up (add a label on the rail)
 - [ ] Dry run with a dummy head / foam block, no person, before any volunteer
 
@@ -43,11 +44,11 @@ Owner: Optimus
 - [x] 10 cm bench test passed 2026-10-28 (8000 steps = 10.00 cm, returned to 0 steps)
 - [ ] Repeat the ruler check at 20 cm: measured ______ mm/rev
 - [ ] Belt checks: tension (no slack, no skipped teeth), pulley set screws tight, carriage cannot drift when the motor is idle/unpowered (belts back-drive; matters if the rail is not perfectly level)
-- [ ] Distance accuracy: command 40 -> 30 -> 20 -> 10 cm, measure with a ruler. Pass: within 1 mm per 10 cm. Record: ______
-- [ ] Repeatability: 10 round trips 40 <-> 10 cm, home position drift under 0.5 mm
+- [ ] Distance accuracy: command 40 -> 30 -> 20 cm, measure the fixation point to the corneal reference with a ruler. Pass: within 1 mm per 10 cm. Record: ______
+- [ ] Repeatability: 10 round trips 40 <-> 20 cm, home position drift under 0.5 mm
 - [ ] Lost-step test: 20 round trips at the ceiling speed, then re-measure home. Any drift means lower the speed/accel or raise the current
-- [ ] Carriage with phone fitted: check stiffness (no rocking or flex at the phone), phone retention, cable strain relief
-- [ ] Motor torque margin with phone mass at max accel (no stalls)
+- [ ] Carriage with fixation target fitted: check stiffness, secure mounting and cable strain relief
+- [ ] Motor torque margin with the final target carriage load at max acceleration (no stalls)
 
 ## 3. Firmware (`firmware/esp8266-stepper`)
 
@@ -96,16 +97,16 @@ Pending:
 
 Owner: Shinra (Optimus for the optics/mount)
 
-- [ ] **Feasibility run:** record a real face at 40, 25, 15, 10, 7, 5 cm with the actual phone. For each record: face detected?, iris landmarks stable?, in focus?, both eyes in frame? Result: ______
+- [ ] **Feasibility run:** with the camera fixed, record a real face while the target is at each intended endpoint (20, 4 and 2 cm), only after mechanical validation. For each position, check target fixation, face detection, stable iris landmarks, focus and both eyes in frame. Result: ______
 - [ ] Phone model and lens chosen (main / ultrawide / macro); minimum focus distance known: ______ cm
 - [ ] Continuous vs stepped tracking comparison: tracker quality at 0.5 cm/s moving vs at a stop. Decide the slow-zone mode from the data
-- [ ] Define the minimum distance actually needed clinically (4 cm or about 6 cm). If OU is lost below roughly 6-8 cm, state the single-eye limit in the UI
-- [ ] Make the tracker distance-aware (iris size, vergence geometry scale with camera distance); today the tracker only stores the distance
+- [ ] Confirm the clinically usable minimum for each selected rail range; do not infer a break below the tested endpoint
+- [ ] Verify in the deployed website that camera crop/geometry stays fixed as the target moves; rail position is used only as target-to-eye distance for break sampling and result reporting
 - [ ] Iris-size distance estimate as a cross-check against the step count (iris about 11.7 mm). Measure its error against the ruler first; use only as a warning, not as truth
 - [ ] Autofocus/exposure behaviour while moving (lock focus at each stop?)
 - [ ] Stepper vibration effect on image sharpness during moves
-- [ ] Where the fixation target sits relative to the lens (answer needed: ______)
-- [ ] **Break detection driven by the eyes** (today auto-stop stops at a preset 12.4 cm, it does not detect a break). First version: operator confirms the break; automatic detection only after validation
+- [ ] Measure and record the offset from the carriage's calibrated datum to the red fixation point and the eye's corneal reference plane
+- [ ] Validate eye-driven break detection against an operator-observed break position; do not treat reaching the 20 cm rail limit as a detected break
 - [ ] Validate break detection against an optometrist's marked break points on a small group; record agreement
 
 ## 6. Network and topology (decision needed)
@@ -159,9 +160,9 @@ Owner: Verity
 
 ## Open questions
 
-1. Where is the fixation target relative to the camera lens? ______
-2. Which phone, and which lens for close range? ______
-3. What is the true minimum distance needed? ______
-4. Should the operator or the tracker end the test at the break? ______
+1. Measure the fixation point to corneal-plane offset and confirm the fixed camera can see both eyes while the patient follows the target.
+2. Which phone and lens provide reliable focus at the fixed camera position? ______
+3. Which selected endpoint (20, 4 or 2 cm) is clinically and physically validated for the intended screening workflow? ______
+4. Compare tracker break detections with operator-observed break points before relying on automatic stop.
 5. Is the hosted (Vercel) deployment holding real patient data? ______
 6. Station-mode clinic WiFi or local server? ______

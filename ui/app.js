@@ -4,6 +4,10 @@
  * "Innovation of an Automated and Compact Clinical Unit for Near Vision Testing"
  */
 
+const DOT_RAIL_HOME_CM = 40.0;
+const DOT_RAIL_MIN_CM = 20.0;
+const DOT_RAIL_LIMIT_OPTIONS_CM = [20.0, 4.0, 2.0];
+
 class AccuVisApp {
   constructor() {
     // Current Active Patient
@@ -57,7 +61,13 @@ class AccuVisApp {
     // Dot-to-Eye Automated Distance Measurement State (Linear Stepper Rail)
     this.dotState = {
       testMode: "npc", // npc (Near Point of Convergence) or npa (Near Point of Accommodation)
-      railDistanceCm: 40.0,
+      // Calibrated rail reading for the fixation target's distance to the eye.
+      // This is not the stationary camera-to-eye distance.
+      railDistanceCm: DOT_RAIL_HOME_CM,
+      targetLimitCm: DOT_RAIL_MIN_CM,
+      measurementState: null,
+      isPreparing: false,
+      prepareCancelled: false,
       isApproaching: false,
       speedCmPerSec: 1.5,
       autoStop: true,
@@ -71,7 +81,6 @@ class AccuVisApp {
       alignmentScore: 99.2,
       animationFrameId: null,
       lastTimestamp: 0,
-      breakDistanceCm: 12.4, // Clinical standard NPC range (~10-15cm)
       // Real-rail hybrid approach: fast sweep (speed pills) down to
       // slowZoneStartCm, then slowStepCm steps at slowSpeedCmPerSec with a
       // slowDwellMs pause at each stop. Set hybridSteps:false for one continuous sweep.
@@ -101,7 +110,7 @@ class AccuVisApp {
       authError: false,
       lastError: "",
       ageS: null,
-      minCm: 4.0,
+      minCm: DOT_RAIL_MIN_CM,
       lastDistanceCm: null,
       profileState: "IDLE",
       stopReason: "",
@@ -1541,12 +1550,14 @@ class AccuVisApp {
   }
 
   async saveAndNextPatient() {
-    const cm = this.dotState.recordedDistanceCm || parseFloat(this.dotState.railDistanceCm.toFixed(1));
+    const cm = Number.isFinite(this.dotState.recordedDistanceCm) ? this.dotState.recordedDistanceCm : parseFloat(this.dotState.railDistanceCm.toFixed(1));
     const mm = Math.round(cm * 10);
     const isNpa = this.dotState.testMode === 'npa';
     const testType = isNpa ? 'NPA' : 'NPC';
     const testLabel = isNpa ? 'Near Point of Accommodation' : 'Near Point of Convergence';
-    const verdict = this.dotState.lastVerdict || (cm <= 10.0 ? `Normal ${testLabel}` : cm <= 15.0 ? `Borderline ${testType}` : `Reduced/Receded ${testType}`);
+    const verdict = this.dotState.lastVerdict || "Break not confirmed";
+    const trackerQuality = this.eyeTracker?.trackingResult?.quality;
+    const qualityNote = Number.isFinite(trackerQuality) ? ` Latest eye-tracker quality: ${Math.round(trackerQuality * 100)}%.` : " Eye-tracker quality was unavailable.";
     const logId = this.generateLogId();
 
     const logPayload = {
@@ -1558,8 +1569,8 @@ class AccuVisApp {
       distance_cm: cm,
       distance_mm: mm,
       verdict: verdict,
-      symmetry: "99.4%",
-      operator_notes: `${testLabel}: ${cm} cm (${mm} mm). ${isNpa ? 'Push-up target moved until sustained blur along stepper rail.' : 'Both eyes converged along stepper rail.'}`
+      symmetry: Number.isFinite(trackerQuality) ? `${Math.round(trackerQuality * 100)}% latest tracking quality` : "Not available",
+      operator_notes: `${testLabel}: ${cm} cm (${mm} mm) target-to-eye distance. Result state: ${this.dotState.measurementState || "manual"}. ${this.dotState.measurementState === "no_break" ? `No break was detected through ${cm} cm; this value is the tested range limit, not a break point.` : this.dotState.measurementState === "unreliable" ? "No reliable break distance was confirmed." : this.dotState.measurementState === "break" ? "The eye tracker detected a convergence break while the patient followed the moving fixation target." : "The rail was stopped manually; a break was not confirmed."}${qualityNote}`
     };
 
     // Save to SQLite & JSON via server API
@@ -1580,9 +1591,9 @@ class AccuVisApp {
       patientName: this.currentPatient.name,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       eye: this.config.eye,
-      distance: `${cm} cm`,
-      acuity: `${testType}: ${cm}cm`,
-      accuracy: "99.4%",
+      distance: this.dotState.measurementState === "no_break" ? `No break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? `Unreliable; tested to ${cm} cm` : this.dotState.measurementState === "manual" ? `Stopped at ${cm} cm; break unconfirmed` : `${cm} cm`,
+      acuity: this.dotState.measurementState === "no_break" ? `${testType}: no break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? `${testType}: no reliable break reading` : this.dotState.measurementState === "manual" ? `${testType}: manually stopped` : `${testType}: break at ${cm} cm`,
+      accuracy: this.dotState.measurementState || "manual",
       fixation: verdict
     });
     this.saveRecords();
@@ -1638,13 +1649,15 @@ class AccuVisApp {
     const tagBadge = document.getElementById('dot-stage-tag-badge');
     if (tagBadge) {
       tagBadge.textContent = isNpa
-        ? 'Near Point of Accommodation • 40cm Push-Up Rail'
-        : 'Near Point of Convergence • 40cm Stepper Rail';
+        ? `Near Point of Accommodation • 40–${this.dotState.targetLimitCm.toFixed(0)} cm Target Rail`
+        : `Near Point of Convergence • 40–${this.dotState.targetLimitCm.toFixed(0)} cm Target Rail`;
     }
 
     const protocolBadge = document.getElementById('dot-stage-protocol-badge');
     if (protocolBadge) {
-      protocolBadge.textContent = isNpa ? 'Active Protocol: NPA 40cm Push-Up' : 'Active Protocol: NPC 40cm Approach';
+      protocolBadge.textContent = isNpa
+        ? `Active Protocol: NPA target approach (40–${this.dotState.targetLimitCm.toFixed(0)} cm)`
+        : `Active Protocol: NPC target approach (40–${this.dotState.targetLimitCm.toFixed(0)} cm)`;
     }
 
     this.updateDotHUD();
@@ -1652,6 +1665,13 @@ class AccuVisApp {
   }
 
   toggleStepperApproach() {
+    if (this.dotState.isPreparing) {
+      this.dotState.prepareCancelled = true;
+      if (this.railHardware.enabled) this.railApiCall("/stop");
+      const statusText = document.getElementById("dot-motor-status-text");
+      if (statusText) statusText.textContent = "Home positioning stopped; check STOP status before retrying.";
+      return;
+    }
     if (this.dotState.isApproaching) {
       this.pauseStepperApproach();
     } else {
@@ -1679,6 +1699,8 @@ class AccuVisApp {
       const res = await fetch(`${this.railHardware.baseUrl}${path}${qs}`, { method });
       const data = await res.json();
       this.railHardware.connected = true;
+      if (typeof data.min_cm === "number") this.railHardware.minCm = data.min_cm;
+      if (typeof data.distance_cm === "number") this.railHardware.lastDistanceCm = data.distance_cm;
       if (typeof data.calibrated === "boolean") {
         this.railHardware.calibrated = data.calibrated;
       }
@@ -1712,7 +1734,7 @@ class AccuVisApp {
   async calibrateRailHardware() {
     const data = await this.railApiCall("/calibrate");
     if (data && data.ok) {
-      this.dotState.railDistanceCm = 40.0;
+      this.dotState.railDistanceCm = DOT_RAIL_HOME_CM;
       this.updateDotHUD();
       this.playTone(523.25, "triangle", 0.15, 0);
     }
@@ -1767,6 +1789,7 @@ class AccuVisApp {
       el.className = "rail-hw-status " + cls;
     }
     this.updateRailCloudControls();
+    this.updateTargetLimitStatus();
   }
 
   // =========================================================================
@@ -1995,19 +2018,23 @@ class AccuVisApp {
     if (!st.armed) return giveUp("Rail is not armed. Press Arm first.");
     if (!st.calibrated) return giveUp("Rail not calibrated. Put the carriage at 40 cm and press Calibrate.");
 
-    const target = Math.max(ds.autoStop ? ds.breakDistanceCm : 4.0, st.min_cm);
-    const fastEnd = ds.hybridSteps ? Math.min(40, Math.max(ds.slowZoneStartCm, target)) : target;
+    const hardwareMinCm = typeof st.min_cm === "number" ? st.min_cm : DOT_RAIL_MIN_CM;
+    const target = ds.targetLimitCm;
+    if (target < hardwareMinCm) {
+      return giveUp(`Selected ${target.toFixed(0)} cm endpoint is below the ESP8266's configured ${hardwareMinCm.toFixed(0)} cm minimum. No motion command was sent.`);
+    }
+    const fastEnd = ds.hybridSteps ? Math.min(DOT_RAIL_HOME_CM, Math.max(ds.slowZoneStartCm, target)) : target;
 
     // Convergence-break detection needs the eyes' starting position, read while the rail still rests
     // at the start distance. Without a steady reading the approach still runs, but only manually.
     const pillNote = document.getElementById("dot-motor-status-text");
-    if (tracker && tracker.mode === "landmarks" &&
+    if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" &&
         tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: fastEnd, endCm: target })) {
       measuring = true;
       tracker.setRailState({ distanceCm: st.distance_cm, moving: false });
       const t0 = performance.now();
       while (!tracker.breakBaselineReady() && performance.now() - t0 < 4000 && ds.isApproaching) {
-        if (pillNote) pillNote.textContent = "Reading the starting eye position. Keep the patient looking at the camera...";
+        if (pillNote) pillNote.textContent = "Reading the starting eye position. Keep the patient fixating on the red target...";
         await new Promise((r) => setTimeout(r, 400));
         const s2 = await this.railApiCall("/status");
         if (s2 && s2.ok) tracker.setRailState({ distanceCm: s2.distance_cm, moving: !!s2.moving });
@@ -2015,10 +2042,10 @@ class AccuVisApp {
       if (!ds.isApproaching) { endMeasuring(); return; }          // operator pressed Stop meanwhile
       if (!tracker.breakBaselineReady()) {
         endMeasuring();
-        this.showNotification("No eye reading", "No steady view of both eyes at the start. The approach will run, but the break will not be detected automatically. Stop it by hand.");
+        this.showNotification("No eye reading", `No steady view of both eyes at the start. The approach will complete to ${target.toFixed(0)} cm, and the result will be marked unconfirmed.`);
       }
     } else if (tracker && tracker.mode !== "landmarks") {
-      this.showNotification("No eye reading", "The landmark tracker is not running, so the break will not be detected automatically.");
+      this.showNotification("No eye reading", `The landmark tracker is not running. The rail will complete to ${target.toFixed(0)} cm, and the result will be marked unconfirmed.`);
     }
 
     const res = await this.railCloud().command("start_profile", {
@@ -2054,15 +2081,10 @@ class AccuVisApp {
       misses = 0;
       ds.railDistanceCm = s.distance_cm;
       this.updateDotHUD();
-      if (this.eyeTracker) this.eyeTracker.updateCarriageDistance(ds.railDistanceCm);
       if (measuring) tracker.setRailState({ distanceCm: s.distance_cm, moving: !!s.moving });
 
       if (s.profile_state !== "IDLE") sawProfile = true;
 
-      if (ds.autoStop && ds.railDistanceCm <= ds.breakDistanceCm + 0.05) {
-        this.stopAndLockMeasurement(`Auto-Stop (Convergence Break at ${ds.breakDistanceCm.toFixed(1)} cm)`);
-        return;
-      }
       if (s.stop_latched) {
         this.stopAndLockMeasurement("Rail stopped");
         return;
@@ -2077,14 +2099,28 @@ class AccuVisApp {
       }
       if (pillText && /holding|Lost contact/.test(pillText.textContent)) pillText.textContent = "Advancing Rail (continuing after the link came back)...";
       if (sawProfile && s.profile_state === "RETURN") {
-        giveUp(this.approachVerdictText(endMeasuring(), `Reached ${target.toFixed(1)} cm. The rail is returning home.`));
+        if (pillText) pillText.textContent = `Target reached at ${target.toFixed(1)} cm; rail is returning home...`;
+        rh.pollTimer = setTimeout(poll, 700);
         return;
       }
       if (sawProfile && s.profile_state === "IDLE" && !s.moving) {
-        // Finished on its own (target reached) or stopped by a safety rule
-        giveUp(s.stop_reason
-          ? `Rail stopped: ${s.stop_reason}`
-          : this.approachVerdictText(endMeasuring(), `Reached ${target.toFixed(1)} cm. The rail is back home.`));
+        const result = endMeasuring();
+        const outcome = ds.testMode !== "npc"
+          ? { state: "unreliable", reason: "The current eye tracker measures convergence response; it does not measure sustained blur for an NPA result." }
+          : s.stop_reason
+            ? { state: "unreliable", reason: `The rail stopped before the target range completed (${s.stop_reason}).` }
+            : result || { state: "unreliable", reason: "A reliable eye-tracking result was not available." };
+        const measuredBreak = outcome.state === "break" ? outcome.breakCm : target;
+        this.stopAndLockMeasurement(
+          outcome.state === "break"
+            ? `Convergence break detected at ${outcome.breakCm.toFixed(1)} cm`
+            : outcome.state === "no_break"
+              ? `No break detected down to ${target.toFixed(1)} cm`
+              : `No reliable break reading: ${outcome.reason || s.stop_reason || "tracking was insufficient"}`,
+          measuredBreak,
+          { ...outcome, testedLimitCm: target },
+          false
+        );
         return;
       }
       rh.pollTimer = setTimeout(poll, s.moving ? 600 : 900);
@@ -2123,12 +2159,46 @@ class AccuVisApp {
     // The firmware clamps every move to its travel limits (min_cm in /status).
     // Aim for what it can really reach so the step loop always terminates.
     const hwStatus = await this.railApiCall("/status");
-    const hwMinCm = hwStatus && typeof hwStatus.min_cm === "number" ? hwStatus.min_cm : 4.0;
-    const targetCm = Math.max(ds.autoStop ? ds.breakDistanceCm : 4.0, hwMinCm);
+    if (!hwStatus || !hwStatus.ok || hwStatus.stop_latched || !hwStatus.armed || !hwStatus.calibrated) {
+      ds.isApproaching = false;
+      const message = !hwStatus || !hwStatus.ok ? "Rail status unavailable -- check connection"
+        : hwStatus.stop_latched ? "STOP is latched -- clear STOP before starting"
+          : !hwStatus.armed ? "Rail is not armed -- arm it before starting"
+            : "Rail is not calibrated -- calibrate at the 40 cm home mark";
+      const statusText = document.getElementById("dot-motor-status-text");
+      if (statusText) statusText.textContent = message;
+      return;
+    }
+    const hwMinCm = hwStatus && typeof hwStatus.min_cm === "number" ? hwStatus.min_cm : DOT_RAIL_MIN_CM;
+    const targetCm = ds.targetLimitCm;
+    if (targetCm < hwMinCm) {
+      ds.isApproaching = false;
+      const statusText = document.getElementById("dot-motor-status-text");
+      if (statusText) statusText.textContent = `Selected ${targetCm.toFixed(0)} cm endpoint is below the ESP8266's configured ${hwMinCm.toFixed(0)} cm minimum. No motion command was sent.`;
+      return;
+    }
     // Hybrid: fast continuous sweep down to the slow zone, then small slow
     // steps with a dwell at each stop (camera is stationary while tracking).
     const hybrid = ds.hybridSteps && targetCm < ds.slowZoneStartCm;
     const firstLegCm = hybrid ? ds.slowZoneStartCm : targetCm;
+    const tracker = this.eyeTracker;
+    ds.breakHandled = false;
+    let breakTrackingReady = false;
+    if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" && tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: firstLegCm, endCm: targetCm })) {
+      tracker.setRailState({ distanceCm: hwStatus.distance_cm, moving: false });
+      const baselineStart = performance.now();
+      while (!tracker.breakBaselineReady() && performance.now() - baselineStart < 4000 && ds.isApproaching) {
+        const current = await this.railApiCall("/status");
+        if (current && current.ok) tracker.setRailState({ distanceCm: current.distance_cm, moving: !!current.moving });
+        if (!tracker.breakBaselineReady()) await new Promise((resolve) => setTimeout(resolve, 250));
+      }
+      if (!ds.isApproaching) return;
+      breakTrackingReady = tracker.breakBaselineReady();
+      if (!breakTrackingReady) {
+        tracker.endBreakDetection();
+        this.showNotification("No automatic break reading", "The camera could not get a steady view of both eyes while the patient fixated on the red target. The rail can still run, but the result will be marked as unconfirmed.");
+      }
+    }
     const moveResp = await this.railApiCall("/move", { distance_cm: firstLegCm, speed_cm_s: ds.speedCmPerSec });
     if (moveResp && moveResp.ok && typeof moveResp.speed_cm_s === "number") {
       // The firmware clamps to its speed ceiling; show what it really applied.
@@ -2157,18 +2227,7 @@ class AccuVisApp {
       if (status && status.ok) {
         this.dotState.railDistanceCm = status.distance_cm;
         this.updateDotHUD();
-        if (this.eyeTracker) {
-          this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
-        }
-
-        if (this.dotState.autoStop && this.dotState.railDistanceCm <= this.dotState.breakDistanceCm + 0.05) {
-          this.stopAndLockMeasurement(`Auto-Stop (Convergence Break at ${this.dotState.breakDistanceCm.toFixed(1)} cm)`);
-          return;
-        }
-        if (this.dotState.railDistanceCm <= 4.05) {
-          this.stopAndLockMeasurement("Rail Limit Reached (4.0 cm)");
-          return;
-        }
+        if (breakTrackingReady) tracker.setRailState({ distanceCm: status.distance_cm, moving: !!status.moving });
         if (!status.moving) {
           if (hybrid && this.dotState.railDistanceCm > targetCm + 0.05) {
             // Stopped inside the slow zone: dwell (tracker reads the eye), then step in again.
@@ -2184,8 +2243,17 @@ class AccuVisApp {
             }, ds.slowDwellMs);
             return;
           }
-          // Reached the end of the firmware's travel without a break/limit threshold.
-          this.stopAndLockMeasurement(`Rail travel limit reached (${targetCm.toFixed(1)} cm)`);
+          // End of the calibrated target range: report the eye-tracking result,
+          // or explicitly mark it unconfirmed when no reliable reading exists.
+          const result = breakTrackingReady ? tracker.endBreakDetection() : null;
+          const outcome = result || { state: "unreliable", reason: "No reliable binocular eye-tracking result was available." };
+          this.stopAndLockMeasurement(
+            outcome.state === "break" ? `Convergence break detected at ${outcome.breakCm.toFixed(1)} cm`
+              : outcome.state === "no_break" ? `No break detected down to ${targetCm.toFixed(1)} cm`
+                : `No reliable break reading: ${outcome.reason}`,
+            outcome.state === "break" ? outcome.breakCm : targetCm,
+            { ...outcome, testedLimitCm: targetCm }
+          );
           return;
         }
       }
@@ -2195,14 +2263,71 @@ class AccuVisApp {
   }
 
   startStepperApproach() {
-    // If carriage is already at minimum distance, reset to 40cm first
-    if (this.dotState.railDistanceCm <= 4.5) {
-      this.dotState.railDistanceCm = 40.0;
+    return this.prepareAndStartStepperApproach();
+  }
+
+  async prepareAndStartStepperApproach() {
+    const ds = this.dotState;
+    if (ds.isApproaching || ds.isPreparing) return;
+    ds.isPreparing = true;
+    ds.prepareCancelled = false;
+    try {
+      // Break detection needs a fresh far-position baseline. If the real rail is
+      // away from home, physically home it rather than changing the HUD alone.
+      if (this.railHardware.enabled) {
+        const initial = await this.railApiCall("/status");
+        if (initial && initial.ok && initial.armed && initial.calibrated) {
+          if (initial.moving) {
+            this.showNotification("Rail is moving", "Wait for the rail to stop before starting a new target approach.");
+            return;
+          }
+          const deviceMinCm = typeof initial.min_cm === "number" ? initial.min_cm : DOT_RAIL_MIN_CM;
+          if (ds.targetLimitCm < deviceMinCm) {
+            this.showNotification(
+              "Endpoint not enabled by firmware",
+              `The selected ${ds.targetLimitCm.toFixed(0)} cm endpoint is below the ESP8266's reported ${deviceMinCm.toFixed(0)} cm minimum. No movement command was sent.`
+            );
+            return;
+          }
+          if (typeof initial.distance_cm === "number" && Math.abs(initial.distance_cm - DOT_RAIL_HOME_CM) > 0.5) {
+            const pillText = document.getElementById("dot-motor-status-text");
+            if (pillText) pillText.textContent = "Returning the fixation target to its calibrated 40 cm home position...";
+            const home = await this.railApiCall("/home");
+            if (ds.prepareCancelled) return;
+            if (!home || !home.ok) {
+              this.showNotification("Could not home the rail", "Check the rail connection and calibration, then try again.");
+              return;
+            }
+            const homeStart = performance.now();
+            let homed = false;
+            while (!ds.prepareCancelled && performance.now() - homeStart < 45000) {
+              await new Promise((resolve) => setTimeout(resolve, 350));
+              const current = await this.railApiCall("/status");
+              if (current && current.ok && !current.moving && Math.abs(current.distance_cm - DOT_RAIL_HOME_CM) <= 0.5) {
+                ds.railDistanceCm = current.distance_cm;
+                this.updateDotHUD();
+                homed = true;
+                break;
+              }
+            }
+            if (ds.prepareCancelled) return;
+            if (!homed) {
+              this.showNotification("Home position not confirmed", "The rail did not report the calibrated 40 cm position. Do not start the approach until its position is confirmed.");
+              return;
+            }
+          }
+        }
+      }
+    } finally {
+      ds.isPreparing = false;
     }
 
-    this.dotState.isApproaching = true;
-    this.dotState.convergenceLocked = false;
-    this.dotState.lastTimestamp = performance.now();
+    ds.isApproaching = true;
+    ds.convergenceLocked = false;
+    ds.measurementState = null;
+    ds.recordedDistanceCm = null;
+    ds.breakHandled = false;
+    ds.lastTimestamp = performance.now();
 
     // UI Pill to running
     const pill = document.getElementById('dot-motor-status-pill');
@@ -2237,27 +2362,18 @@ class AccuVisApp {
       const dt = Math.min(0.1, (now - this.dotState.lastTimestamp) / 1000);
       this.dotState.lastTimestamp = now;
 
-      // Decrement carriage distance
-      this.dotState.railDistanceCm -= this.dotState.speedCmPerSec * dt;
+      // Move the target coordinate; camera geometry remains fixed.
+      const selectedLimitCm = this.dotState.targetLimitCm;
+      this.dotState.railDistanceCm = Math.max(selectedLimitCm, this.dotState.railDistanceCm - this.dotState.speedCmPerSec * dt);
 
-      // Dynamically update eye tracker distance reference scaling
-      if (this.eyeTracker) {
-        this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
-      }
-
-      // Auto-stop check fallback (if not already locked by CV eye tracker)
-      if (this.dotState.autoStop && this.dotState.railDistanceCm <= this.dotState.breakDistanceCm) {
-        this.dotState.railDistanceCm = this.dotState.breakDistanceCm;
+      if (this.dotState.railDistanceCm <= selectedLimitCm) {
+        this.dotState.railDistanceCm = selectedLimitCm;
         this.updateDotHUD();
-        this.stopAndLockMeasurement("Auto-Stop (Convergence Break at 12.4 cm)");
-        return;
-      }
-
-      // Hard limit check (safety stop at 4.0 cm near eye)
-      if (this.dotState.railDistanceCm <= 4.0) {
-        this.dotState.railDistanceCm = 4.0;
-        this.updateDotHUD();
-        this.stopAndLockMeasurement("Rail Limit Reached (4.0 cm)");
+        this.stopAndLockMeasurement(
+          `Simulation reached the ${selectedLimitCm.toFixed(1)} cm target limit; no measured break is available`,
+          selectedLimitCm,
+            { state: "unreliable", reason: ds.testMode === "npc" ? "Simulation mode does not produce a physical convergence measurement." : "The current eye tracker does not measure sustained blur for NPA.", testedLimitCm: selectedLimitCm }
+        );
         return;
       }
 
@@ -2285,16 +2401,19 @@ class AccuVisApp {
     const pill = document.getElementById('dot-motor-status-pill');
     const pillText = document.getElementById('dot-motor-status-text');
     if (pill) pill.className = 'dot-status-pill idle';
-    if (pillText) pillText.textContent = `Paused at ${this.dotState.railDistanceCm.toFixed(1)} cm`;
+    if (pillText) pillText.textContent = `Stopped at ${this.dotState.railDistanceCm.toFixed(1)} cm; next run starts from 40 cm`;
 
     const btnText = document.getElementById('btn-start-text');
-    if (btnText) btnText.textContent = 'Resume Approach';
+    if (btnText) btnText.textContent = 'Restart from Home';
   }
 
-  stopAndLockMeasurement(triggerReason = "Manual Stop & Lock", recordedOverrideCm = null) {
+  stopAndLockMeasurement(triggerReason = "Manual Stop & Lock", recordedOverrideCm = null, measurementOutcome = null, stopMotor = true) {
     this.dotState.isApproaching = false;
     this.railHardware.faceHold = false;
-    if (this.eyeTracker && this.eyeTracker.breakActive) this.eyeTracker.endBreakDetection();
+    if (this.eyeTracker && this.eyeTracker.breakActive) {
+      measurementOutcome = measurementOutcome || this.eyeTracker.endBreakDetection();
+      if (this.eyeTracker.breakActive) this.eyeTracker.endBreakDetection();
+    }
     this.dotState.convergenceLocked = true;
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
@@ -2304,13 +2423,16 @@ class AccuVisApp {
       clearTimeout(this.railHardware.pollTimer);
       this.railHardware.pollTimer = null;
     }
-    if (this.railHardware.enabled) {
+    if (stopMotor && this.railHardware.enabled) {
       this.railApiCall('/stop');
     }
 
     const recordedCm = parseFloat((typeof recordedOverrideCm === "number" ? recordedOverrideCm : this.dotState.railDistanceCm).toFixed(1));
     const recordedMm = Math.round(recordedCm * 10);
     this.dotState.recordedDistanceCm = recordedCm;
+    const measurementState = measurementOutcome?.state || (typeof recordedOverrideCm === "number" ? "break" : "manual");
+    const testedLimitCm = measurementOutcome?.testedLimitCm ?? (measurementState === "no_break" || measurementState === "unreliable" ? recordedCm : null);
+    this.dotState.measurementState = measurementState;
 
     // Pleasant double chime sound for lock
     this.playTone(523.25, 'triangle', 0.15, 0);   // C5
@@ -2320,7 +2442,11 @@ class AccuVisApp {
     const pill = document.getElementById('dot-motor-status-pill');
     const pillText = document.getElementById('dot-motor-status-text');
     if (pill) pill.className = 'dot-status-pill locked';
-    if (pillText) pillText.textContent = `Locked at ${recordedCm} cm`;
+    if (pillText) pillText.textContent = measurementState === "break"
+      ? `Break detected at ${recordedCm} cm`
+      : measurementState === "no_break"
+        ? `No break detected down to ${testedLimitCm} cm`
+        : `Stopped at ${recordedCm} cm`;
 
     const btnText = document.getElementById('btn-start-text');
     if (btnText) btnText.textContent = 'Start Stepper Approach';
@@ -2330,7 +2456,9 @@ class AccuVisApp {
     if (valEl) valEl.textContent = recordedCm.toFixed(1);
 
     const mmEl = document.getElementById('res-dot-dist-mm');
-    if (mmEl) mmEl.textContent = `${recordedMm} mm from Cornea`;
+    if (mmEl) mmEl.textContent = measurementState === "break"
+      ? `${recordedMm} mm target-to-eye distance`
+      : `Tested to ${testedLimitCm ?? recordedCm} cm; break not confirmed`;
 
     const badgeEl = document.getElementById('res-dot-verdict-badge');
     const noteEl = document.getElementById('res-dot-clinical-note');
@@ -2341,40 +2469,25 @@ class AccuVisApp {
       subtitleEl.textContent = isNpa ? 'Near Point of Accommodation (NPA)' : 'Near Point of Convergence (NPC)';
     }
 
-    let verdict;
-    if (recordedCm <= 10.0) {
-      verdict = isNpa ? 'Normal Near Point of Accommodation (Healthy)' : 'Normal Near Point of Convergence (Healthy)';
-      if (badgeEl) {
-        badgeEl.className = 'status-badge-green';
-        badgeEl.textContent = verdict;
-      }
-      if (noteEl) {
-        noteEl.textContent = isNpa
-          ? `Sustained clear focus observed at ${recordedCm} cm. Accommodative amplitude within normal range.`
-          : `Optimal binocular convergence observed at ${recordedCm} cm. Patient maintains foveal alignment with full ocular symmetry.`;
-      }
-    } else if (recordedCm <= 15.0) {
-      verdict = isNpa ? 'Borderline Accommodation Distance' : 'Borderline Convergence Distance';
-      if (badgeEl) {
-        badgeEl.className = 'status-badge-orange';
-        badgeEl.textContent = verdict;
-      }
-      if (noteEl) {
-        noteEl.textContent = isNpa
-          ? `Borderline accommodative near point (${recordedCm} cm). Consider re-evaluation or early presbyopic screening.`
-          : `Borderline convergence distance (${recordedCm} cm). Consider secondary re-evaluation or accommodation fatigue check.`;
-      }
-    } else {
-      verdict = isNpa ? 'Reduced Accommodation / Possible Early Presbyopia' : 'Receded NPC / Possible Convergence Insufficiency';
-      if (badgeEl) {
-        badgeEl.className = 'status-badge-red';
-        badgeEl.textContent = verdict;
-      }
-      if (noteEl) {
-        noteEl.textContent = isNpa
-          ? `Reduced accommodative amplitude (>15 cm). Possible early presbyopia or accommodative insufficiency suspected.`
-          : `Receded Near Point of Convergence (>15 cm). Possible binocular vision stress or convergence insufficiency suspected.`;
-      }
+    const verdict = measurementState === "break"
+      ? "Convergence break detected"
+      : measurementState === "no_break"
+        ? `No break detected through ${testedLimitCm} cm`
+        : measurementState === "unreliable"
+          ? "No reliable break reading"
+          : `Manual stop at ${recordedCm} cm; break not confirmed`;
+    if (badgeEl) {
+      badgeEl.className = measurementState === "break" ? "status-badge-green" : "status-badge-orange";
+      badgeEl.textContent = verdict;
+    }
+    if (noteEl) {
+      noteEl.textContent = measurementState === "break"
+        ? `The tracker detected a convergence break while the patient followed the moving fixation target. Recorded target-to-eye distance: ${recordedCm} cm.`
+        : measurementState === "no_break"
+          ? `No convergence break was detected during the calibrated ${DOT_RAIL_HOME_CM.toFixed(0)}–${testedLimitCm} cm target approach. ${testedLimitCm} cm is the tested range limit, not a measured break point.`
+          : measurementState === "unreliable"
+            ? `${measurementOutcome?.reason || "Tracking quality or rail completion was insufficient."} No break distance was confirmed.`
+            : `The rail was stopped at ${recordedCm} cm. This position is not confirmed as a convergence break.`;
     }
     this.dotState.lastVerdict = verdict;
 
@@ -2400,12 +2513,9 @@ class AccuVisApp {
       this.railApiCall('/home');
     }
 
-    this.dotState.railDistanceCm = 40.0;
+    this.dotState.railDistanceCm = DOT_RAIL_HOME_CM;
     this.dotState.convergenceLocked = false;
     this.updateDotHUD();
-    if (this.eyeTracker) {
-      this.eyeTracker.updateCarriageDistance(40.0);
-    }
 
     const pill = document.getElementById('dot-motor-status-pill');
     const pillText = document.getElementById('dot-motor-status-text');
@@ -2433,26 +2543,22 @@ class AccuVisApp {
     if (this.dotState.isApproaching) this.pauseStepperApproach();
 
     if (this.railHardware.enabled) {
-      // ESP8266 /jog delta_cm convention is inverted vs. this app's
-      // deltaCm (positive here = farther; positive delta_cm on the
-      // device = closer), so negate when translating.
-      this.railApiCall('/jog', { delta_cm: -deltaCm }).then(data => {
+      const currentCm = this.dotState.railDistanceCm;
+      const deviceMinCm = Number.isFinite(this.railHardware.minCm) ? this.railHardware.minCm : DOT_RAIL_MIN_CM;
+      const allowedMinCm = Math.max(this.dotState.targetLimitCm, deviceMinCm);
+      const desiredCm = Math.max(allowedMinCm, Math.min(DOT_RAIL_HOME_CM, currentCm + deltaCm));
+      // Device jog is positive toward the patient; the app distance increases away from the patient.
+      this.railApiCall('/jog', { delta_cm: currentCm - desiredCm }).then(data => {
         if (data && data.ok && typeof data.target_cm === 'number') {
           this.dotState.railDistanceCm = data.target_cm;
           this.updateDotHUD();
-          if (this.eyeTracker) {
-            this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
-          }
         }
       });
       return;
     }
 
-    this.dotState.railDistanceCm = Math.max(3.0, Math.min(40.0, this.dotState.railDistanceCm + deltaCm));
+    this.dotState.railDistanceCm = Math.max(this.dotState.targetLimitCm, Math.min(DOT_RAIL_HOME_CM, this.dotState.railDistanceCm + deltaCm));
     this.updateDotHUD();
-    if (this.eyeTracker) {
-      this.eyeTracker.updateCarriageDistance(this.dotState.railDistanceCm);
-    }
   }
 
   setTargetStyle(style) {
@@ -2467,6 +2573,35 @@ class AccuVisApp {
     });
   }
 
+  setTargetLimit(value) {
+    const targetLimitCm = Number(value);
+    if (!DOT_RAIL_LIMIT_OPTIONS_CM.includes(targetLimitCm)) return;
+    if (this.dotState.isApproaching || this.dotState.isPreparing) {
+      const select = document.getElementById("target-limit-select");
+      if (select) select.value = String(this.dotState.targetLimitCm);
+      this.showNotification("Approach in progress", "Stop the current approach before changing its endpoint.");
+      return;
+    }
+    this.dotState.targetLimitCm = targetLimitCm;
+    this.updateDotHUD();
+  }
+
+  updateTargetLimitStatus() {
+    const status = document.getElementById("target-limit-status");
+    if (!status) return;
+    const targetLimitCm = this.dotState.targetLimitCm;
+    const deviceMinCm = Number.isFinite(this.railHardware.minCm) ? this.railHardware.minCm : DOT_RAIL_MIN_CM;
+    if (this.railHardware.enabled && targetLimitCm < deviceMinCm) {
+      status.textContent = `ESP8266 limit: ${deviceMinCm.toFixed(0)} cm; this endpoint is blocked`;
+      status.classList.add("target-limit-blocked");
+      return;
+    }
+    status.textContent = this.railHardware.enabled
+      ? `Next approach sends ${targetLimitCm.toFixed(0)} cm to the ESP8266`
+      : `Simulation endpoint: ${targetLimitCm.toFixed(0)} cm`;
+    status.classList.remove("target-limit-blocked");
+  }
+
   updateDotHUD() {
     const cm = this.dotState.railDistanceCm;
     const cmFormatted = cm.toFixed(1);
@@ -2477,14 +2612,19 @@ class AccuVisApp {
     if (hudCm) hudCm.textContent = cmFormatted;
 
     const hudMm = document.getElementById('dot-hud-mm');
-    if (hudMm) hudMm.textContent = `${mm} mm to cornea`;
+    if (hudMm) hudMm.textContent = `${mm} mm target to cornea`;
 
     const topbarRail = document.getElementById('topbar-rail-val');
     if (topbarRail) topbarRail.textContent = `${cmFormatted}cm`;
 
-    // Update Rail Track Progress Bar & Carriage Marker
-    // 0 cm is at left (0%), 40 cm is at right (100%)
-    const pct = Math.max(0, Math.min(100, (cm / 40.0) * 100));
+    const targetLimitCm = this.dotState.targetLimitCm;
+    const isNpa = this.dotState.testMode === 'npa';
+    const rangeLabel = `40–${targetLimitCm.toFixed(0)} cm`;
+    const tagBadge = document.getElementById('dot-stage-tag-badge');
+    if (tagBadge) tagBadge.textContent = `${isNpa ? 'Near Point of Accommodation' : 'Near Point of Convergence'} • ${rangeLabel} Target Rail`;
+    const protocolBadge = document.getElementById('dot-stage-protocol-badge');
+    if (protocolBadge) protocolBadge.textContent = `Active Protocol: ${isNpa ? 'NPA' : 'NPC'} target approach (${rangeLabel})`;
+    const pct = Math.max(0, Math.min(100, ((cm - targetLimitCm) / (DOT_RAIL_HOME_CM - targetLimitCm)) * 100));
 
     const fillEl = document.getElementById('rail-track-fill');
     if (fillEl) fillEl.style.width = `${pct}%`;
@@ -2493,16 +2633,18 @@ class AccuVisApp {
     if (cursorEl) cursorEl.style.left = `${pct}%`;
 
     const carriageLabel = document.getElementById('rail-carriage-label');
-    if (carriageLabel) carriageLabel.textContent = `Carriage: ${cmFormatted} cm`;
+    if (carriageLabel) carriageLabel.textContent = `Fixation target: ${cmFormatted} cm`;
+    const limitSelect = document.getElementById("target-limit-select");
+    if (limitSelect) limitSelect.value = String(targetLimitCm);
+    this.updateTargetLimitStatus();
 
     // Update Simulated Pupils (vergence inward as carriage gets closer)
     this.updatePupilVergence(cm);
   }
 
   updatePupilVergence(distCm) {
-    // Standard normal convergence: 40cm -> eyes parallel (shift 0px)
-    // 5cm -> eyes strongly converged (shift +/- 6.5px inward)
-    const factor = Math.max(0, Math.min(1, (40.0 - distCm) / 35.0));
+    // HUD-only illustration scaled across the selected 40 cm to endpoint range.
+    const factor = Math.max(0, Math.min(1, (DOT_RAIL_HOME_CM - distCm) / (DOT_RAIL_HOME_CM - this.dotState.targetLimitCm)));
     const maxShiftPx = 6.5;
     const shift = factor * maxShiftPx;
 
@@ -2658,9 +2800,9 @@ class AccuVisApp {
     // Auto-Stop when the detector finds a convergence break. It reports the FIRST position where the
     // eyes gave way, not the (later) one where the rail was when this was confirmed.
     const br = res.breakResult;
-    if (br && br.state === "break" && this.dotState.isApproaching && this.dotState.autoStop && !this.dotState.breakHandled) {
+    if (this.dotState.testMode === "npc" && br && br.state === "break" && this.dotState.isApproaching && this.dotState.autoStop && !this.dotState.breakHandled) {
       this.dotState.breakHandled = true;
-      this.stopAndLockMeasurement(`Auto-Stop: convergence break at ${br.breakCm.toFixed(1)} cm`, br.breakCm);
+      this.stopAndLockMeasurement(`Convergence break detected at ${br.breakCm.toFixed(1)} cm`, br.breakCm, br);
     }
     this.guardFaceDuringApproach(res);
   }
@@ -2931,17 +3073,17 @@ class AccuVisApp {
   }
 
   saveDotMeasurementRecord() {
-    const cm = this.dotState.recordedDistanceCm || parseFloat(this.dotState.railDistanceCm.toFixed(1));
+    const cm = Number.isFinite(this.dotState.recordedDistanceCm) ? this.dotState.recordedDistanceCm : parseFloat(this.dotState.railDistanceCm.toFixed(1));
     const newRecord = {
       id: "REC-DOT-" + Math.floor(1000 + Math.random() * 9000),
       patientId: this.currentPatient.id,
       patientName: this.currentPatient.name,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       eye: "OU (Both)",
-      distance: `${cm} cm`,
-      acuity: `NPC: ${cm}cm`,
-      accuracy: cm <= 10 ? "Normal (<10cm)" : cm <= 15 ? "Borderline" : "Receded (>15cm)",
-      fixation: "99.4% Locked"
+      distance: this.dotState.measurementState === "no_break" ? `No break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? `Unreliable; tested to ${cm} cm` : this.dotState.measurementState === "manual" ? `Stopped at ${cm} cm; break unconfirmed` : `${cm} cm`,
+      acuity: this.dotState.measurementState === "no_break" ? `NPC: no break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? "NPC: no reliable break reading" : this.dotState.measurementState === "manual" ? "NPC: manually stopped" : `NPC: break at ${cm} cm`,
+      accuracy: this.dotState.measurementState || "manual",
+      fixation: this.dotState.lastVerdict || "Break not confirmed"
     };
 
     this.records.unshift(newRecord);

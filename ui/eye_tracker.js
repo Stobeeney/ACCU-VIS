@@ -35,7 +35,8 @@ class AccuVisEyeTracker {
     this.flipped180 = options.flipped180 || false;
     this.mirrored = options.mirrored || false;
     this.targetEye = options.targetEye || 'OD'; // 'OD' (Right), 'OS' (Left), 'OU' (Both)
-    this.railDistanceCm = 40.0;
+    // Camera geometry is fixed; rail position belongs to target measurement only.
+    this.fixedCropWidthRatio = options.fixedCropWidthRatio || (155 / 640);
 
     // Dynamic Eye Crop Box (Smoothed with Exponential Moving Average)
     this.cropState = {
@@ -140,10 +141,6 @@ class AccuVisEyeTracker {
     this.recenterEyeCrop();
   }
 
-  updateCarriageDistance(distCm) {
-    this.railDistanceCm = Math.max(4.0, Math.min(40.0, distCm));
-  }
-
   // ---- convergence-break detection (see convergence_break.js) ----------------------------------
   beginBreakDetection({ dwellMs, startCm, endCm } = {}) {
     if (!this.breakDetector) return false;
@@ -157,7 +154,6 @@ class AccuVisEyeTracker {
   /** Feed with every rail status the page receives. */
   setRailState({ distanceCm, moving }) {
     if (typeof distanceCm !== 'number' || !isFinite(distanceCm)) return;
-    this.updateCarriageDistance(distanceCm);
     if (this.breakDetector && this.breakActive) this.breakDetector.updateRail({ t: performance.now(), distanceCm, moving: !!moving });
   }
 
@@ -589,8 +585,7 @@ class AccuVisEyeTracker {
     }
 
     // 2. Center crop box directly around the detected eye
-    const tDist = (40.0 - this.railDistanceCm) / 36.0;
-    const cropW = Math.round(155 + tDist * 45);
+    const cropW = Math.round(fullW * this.fixedCropWidthRatio);
     const cropH = Math.round(cropW * 0.72);
 
     this.cropState.w = cropW;
@@ -867,8 +862,7 @@ class AccuVisEyeTracker {
     const leftW = this.canvasLeft ? this.canvasLeft.width : 220;
     const leftH = this.canvasLeft ? this.canvasLeft.height : 150;
 
-    const tDist = (40.0 - this.railDistanceCm) / 36.0;
-    const cropW = Math.round(155 + tDist * 45);
+    const cropW = Math.round(fullW * this.fixedCropWidthRatio);
     const cropH = Math.round(cropW * 0.72);
 
     if (!this.cropState.initialized) {
@@ -1021,7 +1015,7 @@ class AccuVisEyeTracker {
 
     if (this.convergenceHistory.length >= 12) {
       const avgSym = this.convergenceHistory.reduce((acc, h) => acc + h.symmetry, 0) / this.convergenceHistory.length;
-      this.trackingResult.isConverged = (avgSym >= 98.2 && gazeZ >= 0.90 && this.railDistanceCm <= 20);
+      this.trackingResult.isConverged = (avgSym >= 98.2 && gazeZ >= 0.90);
     } else {
       this.trackingResult.isConverged = false;
     }

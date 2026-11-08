@@ -128,7 +128,8 @@ class AccuVisRailCloud {
       calibrated: !!st.calibrated,
       distance_cm: typeof st.distance_cm === 'number' ? st.distance_cm : null,
       moving: !!st.moving,
-      min_cm: typeof st.limit_min_cm === 'number' ? st.limit_min_cm : 4.0,
+      // Missing firmware bounds must fall back to the known conservative 20cm limit.
+      min_cm: typeof st.limit_min_cm === 'number' ? st.limit_min_cm : 20.0,
       max_cm: typeof st.limit_max_cm === 'number' ? st.limit_max_cm : 40.0,
       profile_state: st.profile_state || 'IDLE',
       mode: st.mode || 'idle',
