@@ -22,8 +22,7 @@ class AccuVisApp {
     this.config = {
       eye: "OD",            // OD (Right), OS (Left), OU (Binocular)
       distance: "40cm",     // Standard Near Acuity on Linear Guide
-      chartType: "tumbling_e", // tumbling_e, landolt_c, snellen
-      totalTrials: 8,
+      chartType: "snellen",
       trackingProvider: "simulation" // simulation, mediapipe
     };
 
@@ -38,25 +37,7 @@ class AccuVisApp {
     };
 
     // Vision Test State Engine
-    this.testState = {
-      active: false,
-      paused: false,
-      trialIndex: 0,
-      currentOrientation: "right", // up, down, left, right
-      currentTier: "20/40",
-      trials: [],
-      trialStartTime: 0,
-      snellenLevels: [
-        { label: "20/100", sizePx: 140, logmar: 0.7 },
-        { label: "20/70",  sizePx: 110, logmar: 0.54 },
-        { label: "20/50",  sizePx: 90,  logmar: 0.4 },
-        { label: "20/40",  sizePx: 75,  logmar: 0.3 },
-        { label: "20/30",  sizePx: 60,  logmar: 0.18 },
-        { label: "20/25",  sizePx: 48,  logmar: 0.1 },
-        { label: "20/20",  sizePx: 38,  logmar: 0.0 },
-        { label: "20/15",  sizePx: 30,  logmar: -0.12 }
-      ]
-    };
+    this.testState = { active: false, selectedLine: null, lastResult: null };
 
     // Dot-to-Eye Automated Distance Measurement State (Linear Stepper Rail)
     this.dotState = {
@@ -204,6 +185,7 @@ class AccuVisApp {
     if (!this.currentUser && viewName !== 'login') {
       viewName = 'login';
     }
+    if (viewName !== 'exam' && this.testState) this.testState.active = false;
 
     this.closeMobileSidebar();
 
@@ -628,111 +610,71 @@ class AccuVisApp {
 
   startInstantTest() {
     this.testState.active = true;
-    this.testState.paused = false;
-    this.testState.trialIndex = 0;
-    this.testState.trials = [];
+    this.testState.selectedLine = null;
+    this.testState.lastResult = null;
 
-    // Header metadata
     const patEl = document.getElementById('exam-patient-name');
     if (patEl) patEl.textContent = `${this.currentPatient.name} (${this.currentPatient.id})`;
-
+    const patientSummary = document.getElementById('exam-patient-summary');
+    if (patientSummary) patientSummary.textContent = this.currentPatient.name;
     const eyeEl = document.getElementById('exam-active-eye-tag');
     if (eyeEl) eyeEl.textContent = this.config.eye;
-
     const distEl = document.getElementById('exam-active-dist-tag');
     if (distEl) distEl.textContent = `${this.fixture.linearDistanceCm}cm`;
-
-    this.presentNextTrial();
+    const distanceLabel = document.getElementById('exam-distance-tag');
+    if (distanceLabel) distanceLabel.textContent = `${this.fixture.linearDistanceCm}cm`;
+    this.clearSnellenSelection();
+    this.closeExamResultModal();
   }
 
-  presentNextTrial() {
-    if (this.testState.trialIndex >= this.config.totalTrials) {
-      this.completeTest();
+  selectSnellenLine(line) {
+    if (!this.testState.active || !/^20\/(200|100|70|50|40|30|25|20|15|13|10)$/.test(line)) return;
+    this.testState.selectedLine = line;
+    document.querySelectorAll('.snellen-row').forEach(row => {
+      const selected = row.dataset.snellen === line;
+      row.classList.toggle('selected', selected);
+      row.setAttribute('aria-pressed', String(selected));
+    });
+    const selectedLabel = document.getElementById('snellen-selected-result');
+    if (selectedLabel) selectedLabel.textContent = line;
+    const recordButton = document.getElementById('snellen-record-btn');
+    if (recordButton) recordButton.disabled = false;
+  }
+
+  clearSnellenSelection() {
+    this.testState.selectedLine = null;
+    document.querySelectorAll('.snellen-row').forEach(row => {
+      row.classList.remove('selected');
+      row.setAttribute('aria-pressed', 'false');
+    });
+    const selectedLabel = document.getElementById('snellen-selected-result');
+    if (selectedLabel) selectedLabel.textContent = 'Not selected';
+    const recordButton = document.getElementById('snellen-record-btn');
+    if (recordButton) recordButton.disabled = true;
+  }
+
+  completeSnellenTest() {
+    const selectedLine = this.testState.selectedLine;
+    if (!selectedLine) {
+      this.showNotification('Select a chart line', 'Choose the smallest line the patient read correctly before recording.');
       return;
     }
 
-    const currentIdx = this.testState.trialIndex;
-    const trialNumEl = document.getElementById('exam-trial-num');
-    if (trialNumEl) trialNumEl.textContent = currentIdx + 1;
-
-    const progressPct = ((currentIdx) / this.config.totalTrials) * 100;
-    const fillEl = document.getElementById('exam-progress-fill');
-    if (fillEl) fillEl.style.width = `${progressPct}%`;
-
-    // Pick Snellen tier based on trial progression
-    const tier = this.testState.snellenLevels[Math.min(currentIdx, this.testState.snellenLevels.length - 1)];
-    this.testState.currentTier = tier.label;
-    const tierEl = document.getElementById('exam-acuity-tag');
-    if (tierEl) tierEl.textContent = `${tier.label} Equiv`;
-
-    // Randomize orientation: up, down, left, right
-    const orientations = ["up", "down", "left", "right"];
-    const randomOrient = orientations[Math.floor(Math.random() * orientations.length)];
-    this.testState.currentOrientation = randomOrient;
-
-    // Update Optotype on Clinical Canvas
-    const stimEl = document.getElementById('optotype-stimulus');
-    if (stimEl) {
-      stimEl.className = `optotype-e orientation-${randomOrient}`;
-      stimEl.style.fontSize = `${tier.sizePx}px`;
-      stimEl.textContent = 'E';
-    }
-
-    this.testState.trialStartTime = performance.now();
-  }
-
-  recordResponse(direction) {
-    if (!this.testState.active || this.testState.paused) return;
-
-    const reactionTimeMs = Math.round(performance.now() - this.testState.trialStartTime);
-    const correct = (direction === this.testState.currentOrientation);
-
-    this.testState.trials.push({
-      trialNumber: this.testState.trialIndex + 1,
-      targetOrientation: this.testState.currentOrientation,
-      patientResponse: direction,
-      isCorrect: correct,
-      acuityTier: this.testState.currentTier,
-      reactionTimeMs: reactionTimeMs
-    });
-
-    this.testState.trialIndex++;
-    this.presentNextTrial();
-  }
-
-  repeatTrial() {
-    if (!this.testState.active) return;
-    this.presentNextTrial();
-  }
-
-  completeTest() {
+    const denominator = Number(selectedLine.split('/')[1]);
+    const logmar = Math.log10(denominator / 20).toFixed(2);
     this.testState.active = false;
+    this.testState.lastResult = { finalTier: selectedLine, selectedLine, logmar };
 
-    // Calculate score
-    const correctCount = this.testState.trials.filter(t => t.isCorrect).length;
-    const finalTier = correctCount >= 7 ? "20/20" : correctCount >= 5 ? "20/25" : correctCount >= 3 ? "20/40" : "20/70";
-    const logmar = finalTier === "20/20" ? "0.00" : finalTier === "20/25" ? "0.10" : finalTier === "20/40" ? "0.30" : "0.54";
-    this.testState.lastResult = { correctCount, finalTier, logmar };
-
-    // Populate Result Modal
     const snellenEl = document.getElementById('res-exam-snellen');
-    if (snellenEl) snellenEl.textContent = finalTier;
+    if (snellenEl) snellenEl.textContent = selectedLine;
 
     const logmarEl = document.getElementById('res-exam-logmar');
     if (logmarEl) logmarEl.textContent = `LogMAR ${logmar}`;
 
     const badgeEl = document.getElementById('res-exam-verdict-badge');
     const noteEl = document.getElementById('res-exam-clinical-note');
-    if (finalTier === '20/20') {
-      if (badgeEl) { badgeEl.className = 'status-badge-green'; badgeEl.textContent = 'Normal Visual Acuity'; }
-      if (noteEl) noteEl.textContent = `Patient correctly identified ${correctCount} of ${this.config.totalTrials} optotype orientations. No refractive concern detected.`;
-    } else if (finalTier === '20/25' || finalTier === '20/40') {
-      if (badgeEl) { badgeEl.className = 'status-badge-orange'; badgeEl.textContent = 'Mild Refractive Blur'; }
-      if (noteEl) noteEl.textContent = `Patient identified ${correctCount} of ${this.config.totalTrials} optotypes correctly. Consider refraction re-check.`;
-    } else {
-      if (badgeEl) { badgeEl.className = 'status-badge-red'; badgeEl.textContent = 'Reduced Visual Acuity'; }
-      if (noteEl) noteEl.textContent = `Patient identified only ${correctCount} of ${this.config.totalTrials} optotypes correctly. Recommend comprehensive refractive evaluation.`;
-    }
+    if (badgeEl) { badgeEl.className = 'status-badge-neutral'; badgeEl.textContent = 'Operator-recorded Snellen result'; }
+    if (noteEl) noteEl.textContent = `The operator marked ${selectedLine} as the smallest line read correctly. Confirm chart size and viewing distance before clinical interpretation.`;
 
     const resEyeEl = document.getElementById('res-exam-eye');
     if (resEyeEl) resEyeEl.textContent = this.config.eye;
@@ -741,7 +683,7 @@ class AccuVisApp {
     if (resDistEl) resDistEl.textContent = `${this.fixture.linearDistanceCm}cm`;
 
     const resAccEl = document.getElementById('res-exam-accuracy');
-    if (resAccEl) resAccEl.textContent = `${correctCount}/${this.config.totalTrials}`;
+    if (resAccEl) resAccEl.textContent = selectedLine;
 
     const modal = document.getElementById('modal-exam-result');
     if (modal) modal.classList.remove('hidden');
@@ -772,8 +714,8 @@ class AccuVisApp {
       distance_cm: this.fixture.linearDistanceCm,
       distance_mm: this.fixture.linearDistanceCm * 10,
       verdict: `${result.finalTier} (LogMAR ${result.logmar})`,
-      symmetry: `${result.correctCount}/${this.config.totalTrials}`,
-      operator_notes: `Near Visual Acuity trial: ${result.correctCount} of ${this.config.totalTrials} tumbling-E orientations identified correctly at ${this.fixture.linearDistanceCm}cm.`
+      symmetry: null,
+      operator_notes: `Operator-reported smallest Snellen line read correctly: ${result.selectedLine} at ${this.fixture.linearDistanceCm}cm viewing distance. Screen scaling must be calibrated before clinical interpretation.`
     };
 
     try {
@@ -794,7 +736,7 @@ class AccuVisApp {
       eye: this.config.eye,
       distance: `${this.fixture.linearDistanceCm}cm`,
       acuity: result.finalTier,
-      accuracy: `${result.correctCount}/${this.config.totalTrials}`,
+      accuracy: result.selectedLine,
       fixation: logPayload.verdict
     });
     this.saveRecords();
@@ -3200,7 +3142,7 @@ class AccuVisApp {
   bindKeyboardShortcuts() {
     window.addEventListener('keydown', (e) => {
       const activeTag = document.activeElement ? document.activeElement.tagName.toLowerCase() : '';
-      if (activeTag === 'input' || activeTag === 'textarea') return;
+      if (activeTag === 'input' || activeTag === 'textarea' || activeTag === 'select') return;
 
       // In Active Dot Distance Measurement View
       const dotView = document.getElementById('view-dot-measure');
@@ -3230,30 +3172,10 @@ class AccuVisApp {
         return;
       }
 
-      // In Active Vision Exam
-      if (this.testState.active) {
-        if (e.key === 'ArrowUp') {
-          e.preventDefault();
-          this.recordResponse('up');
-        } else if (e.key === 'ArrowDown') {
-          e.preventDefault();
-          this.recordResponse('down');
-        } else if (e.key === 'ArrowLeft') {
-          e.preventDefault();
-          this.recordResponse('left');
-        } else if (e.key === 'ArrowRight') {
-          e.preventDefault();
-          this.recordResponse('right');
-        } else if (e.key === ' ' || e.code === 'Space') {
-          e.preventDefault();
-          this.recordResponse('cannot_see');
-        } else if (e.key === 'r' || e.key === 'R') {
-          e.preventDefault();
-          this.repeatTrial();
-        } else if (e.key === 'Escape') {
-          e.preventDefault();
-          this.switchView('dashboard');
-        }
+      // Keep chart-row buttons and their native keyboard behavior in the Near VA view.
+      const examView = document.getElementById('view-exam');
+      if (examView && examView.classList.contains('active')) {
+        if (e.key === 'Escape') this.switchView('dashboard');
         return;
       }
 

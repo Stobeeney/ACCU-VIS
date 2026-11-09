@@ -2287,6 +2287,198 @@ html.logged-out #view-login {
   border: 1px solid rgba(74, 14, 23, 0.10);
 }
 
+/* Full-screen Snellen chart for operator-recorded Near VA readings. */
+.snellen-exam-layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 290px;
+  align-items: start;
+  gap: 20px;
+}
+
+.snellen-chart-card,
+.snellen-result-card {
+  min-width: 0;
+  padding: 22px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-xl);
+  background: var(--card-white);
+  box-shadow: var(--card-shadow);
+}
+
+.snellen-chart-heading {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+
+.snellen-chart-heading h2,
+.snellen-result-card h2 {
+  margin: 0;
+  color: var(--primary-maroon-dark);
+  font-size: 17px;
+  font-weight: 800;
+}
+
+.snellen-chart-heading p,
+.snellen-result-card > p {
+  margin: 5px 0 0;
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.5;
+}
+
+.snellen-eye-chip {
+  flex: 0 0 auto;
+  padding: 7px 11px;
+  border-radius: var(--radius-pill);
+  background: var(--bg-cream-soft);
+  color: var(--text-muted);
+  font-size: 11px;
+}
+
+.snellen-eye-chip strong {
+  color: var(--primary-maroon);
+}
+
+.snellen-chart {
+  overflow: hidden;
+  padding: 8px 6px;
+  border: 1px solid #e7e3dc;
+  border-radius: var(--radius-md);
+  background: #fff;
+}
+
+.snellen-row {
+  display: grid;
+  grid-template-columns: clamp(52px, 9vw, 76px) minmax(0, 1fr) 24px;
+  align-items: center;
+  gap: 4px;
+  width: 100%;
+  min-height: 44px;
+  padding: 2px 8px;
+  border: 0;
+  border-bottom: 1px solid #f1efeb;
+  border-radius: 4px;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  touch-action: manipulation;
+}
+
+.snellen-row:last-child {
+  border-bottom: 0;
+}
+
+.snellen-row:hover,
+.snellen-row:focus-visible {
+  outline: 2px solid var(--primary-maroon);
+  outline-offset: -2px;
+  background: #fffaf0;
+}
+
+.snellen-row.selected {
+  outline: 2px solid var(--primary-maroon);
+  outline-offset: -2px;
+  background: #fff4d0;
+}
+
+.snellen-row-value {
+  justify-self: start;
+  color: #555;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  white-space: nowrap;
+}
+
+.snellen-row-letters {
+  overflow: hidden;
+  color: #050505;
+  font-family: Georgia, 'Times New Roman', serif;
+  font-size: var(--snellen-size);
+  font-weight: 900;
+  letter-spacing: 0.06em;
+  line-height: 1;
+  text-align: center;
+  white-space: nowrap;
+}
+
+.snellen-row-number {
+  justify-self: end;
+  color: #222;
+  font-family: var(--font-mono);
+  font-size: 12px;
+  font-weight: 800;
+}
+
+.snellen-chart-note {
+  margin: 12px 2px 0;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.snellen-result-card {
+  position: sticky;
+  top: 14px;
+}
+
+.snellen-selected-reading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin: 18px 0 14px;
+  padding: 14px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-md);
+  background: var(--bg-cream-soft);
+  color: var(--text-muted);
+  font-size: 12px;
+}
+
+.snellen-selected-reading strong {
+  color: var(--primary-maroon);
+  font-family: var(--font-mono);
+  font-size: 18px;
+}
+
+.snellen-result-card .exam-summary-box {
+  gap: 10px;
+  justify-content: space-between;
+  padding: 12px;
+}
+
+.snellen-result-card .summary-val {
+  overflow-wrap: anywhere;
+  font-size: 13px;
+}
+
+.snellen-record-btn,
+.snellen-clear-btn {
+  width: 100%;
+  min-height: 44px;
+  margin-top: 12px;
+}
+
+.snellen-record-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.status-badge-neutral {
+  display: inline-block;
+  margin-top: 8px;
+  padding: 4px 12px;
+  border-radius: var(--radius-pill);
+  background: var(--input-bg);
+  color: var(--primary-maroon);
+  font-size: 12px;
+  font-weight: 700;
+}
+
 .summary-metric {
   display: flex;
   flex-direction: column;
@@ -3147,6 +3339,37 @@ html.logged-out #view-login {
   /* Near VA / Jaeger's Chart exam layout */
   .exam-desktop-grid {
     grid-template-columns: 1fr;
+  }
+
+  .snellen-exam-layout {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  .snellen-result-card {
+    position: static;
+  }
+
+  .snellen-chart-card,
+  .snellen-result-card {
+    padding: 14px;
+  }
+
+  .snellen-row {
+    grid-template-columns: 54px minmax(0, 1fr) 20px;
+    gap: 2px;
+    padding: 2px 4px;
+  }
+
+  .snellen-row-value {
+    font-size: 8px;
+  }
+
+  .snellen-row-number {
+    font-size: 10px;
+  }
+
+  .snellen-row-letters {
+    letter-spacing: 0.02em;
   }
 
   .optotype-stimulus-card,

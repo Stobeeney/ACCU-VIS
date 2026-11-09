@@ -902,49 +902,73 @@
         <section id="view-exam" class="app-view">
           <div class="desktop-view-header">
             <div>
-              <div class="stage-tag-badge">Near Visual Acuity Protocol &bull; 40cm Standard Fixation</div>
-              <h1 class="desktop-view-title">Near Visual Acuity (Snellen &amp; Tumbling E)</h1>
+              <div class="stage-tag-badge">Near Visual Acuity Protocol &bull; <span id="exam-distance-tag">40cm</span> viewing distance</div>
+              <h1 class="desktop-view-title">Near Visual Acuity Snellen Chart</h1>
+              <p class="desktop-view-subtitle" id="exam-patient-name">Patient not selected</p>
             </div>
             <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
           </div>
 
-          <div class="exam-desktop-grid">
-            <!-- Left Panel: High Contrast Optotype Stimulus Screen -->
-            <div class="optotype-stimulus-card">
-              <div class="optotype-display-box">
-                <div id="optotype-stimulus" class="optotype-char">E</div>
-                <div class="optotype-meta-footer">
-                  <span>Trial <strong id="exam-trial-num">1</strong> of 8</span>
-                  <span>&bull;</span>
-                  <span id="exam-acuity-tag">20/40 Equiv</span>
+          <div class="snellen-exam-layout">
+            <section class="snellen-chart-card" aria-labelledby="snellen-chart-title">
+              <div class="snellen-chart-heading">
+                <div>
+                  <h2 id="snellen-chart-title">Snellen Visual Acuity Chart</h2>
+                  <p>Ask the patient to read the letters from top to bottom. Select the smallest line read correctly.</p>
                 </div>
-              </div>
-            </div>
-
-            <!-- Right Panel: Direction Keypad & Protocol Log -->
-            <div class="exam-keypad-card">
-              <h3 class="keypad-title">Operator Keypad Response</h3>
-              <p class="keypad-sub">Select the perceived orientation of the optotype</p>
-
-              <div class="dpad-container">
-                <button class="dpad-btn dpad-up" onclick="app.recordResponse('up')">&uarr; UP</button>
-                <div class="dpad-middle-row">
-                  <button class="dpad-btn dpad-left" onclick="app.recordResponse('left')">&larr; LEFT</button>
-                  <button class="dpad-btn dpad-right" onclick="app.recordResponse('right')">&rarr; RIGHT</button>
-                </div>
-                <button class="dpad-btn dpad-down" onclick="app.recordResponse('down')">&darr; DOWN</button>
+                <span class="snellen-eye-chip">Testing <strong id="exam-active-eye-tag">OD</strong></span>
               </div>
 
+              <div class="snellen-chart" role="group" aria-label="Full Snellen chart. Select the smallest line read correctly.">
+                <button type="button" class="snellen-row" data-snellen="20/200" aria-label="Select 20 over 200 line, E" aria-pressed="false" onclick="app.selectSnellenLine('20/200', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/200</span><span class="snellen-row-letters" style="--snellen-size:9rem" aria-hidden="true">E</span><span class="snellen-row-number" aria-hidden="true">1</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/100" aria-label="Select 20 over 100 line, F P" aria-pressed="false" onclick="app.selectSnellenLine('20/100', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/100</span><span class="snellen-row-letters" style="--snellen-size:4.5rem" aria-hidden="true">F&nbsp;P</span><span class="snellen-row-number" aria-hidden="true">2</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/70" aria-label="Select 20 over 70 line, T O Z" aria-pressed="false" onclick="app.selectSnellenLine('20/70', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/70</span><span class="snellen-row-letters" style="--snellen-size:3.15rem" aria-hidden="true">T&nbsp;O&nbsp;Z</span><span class="snellen-row-number" aria-hidden="true">3</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/50" aria-label="Select 20 over 50 line, L P E D" aria-pressed="false" onclick="app.selectSnellenLine('20/50', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/50</span><span class="snellen-row-letters" style="--snellen-size:2.25rem" aria-hidden="true">L&nbsp;P&nbsp;E&nbsp;D</span><span class="snellen-row-number" aria-hidden="true">4</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/40" aria-label="Select 20 over 40 line, P E C F D" aria-pressed="false" onclick="app.selectSnellenLine('20/40', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/40</span><span class="snellen-row-letters" style="--snellen-size:1.8rem" aria-hidden="true">P&nbsp;E&nbsp;C&nbsp;F&nbsp;D</span><span class="snellen-row-number" aria-hidden="true">5</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/30" aria-label="Select 20 over 30 line, E D F C Z P" aria-pressed="false" onclick="app.selectSnellenLine('20/30', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/30</span><span class="snellen-row-letters" style="--snellen-size:1.35rem" aria-hidden="true">E&nbsp;D&nbsp;F&nbsp;C&nbsp;Z&nbsp;P</span><span class="snellen-row-number" aria-hidden="true">6</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/25" aria-label="Select 20 over 25 line, F E L O P Z D" aria-pressed="false" onclick="app.selectSnellenLine('20/25', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/25</span><span class="snellen-row-letters" style="--snellen-size:1.125rem" aria-hidden="true">F&nbsp;E&nbsp;L&nbsp;O&nbsp;P&nbsp;Z&nbsp;D</span><span class="snellen-row-number" aria-hidden="true">7</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/20" aria-label="Select 20 over 20 line, D E F P O T E C" aria-pressed="false" onclick="app.selectSnellenLine('20/20', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/20</span><span class="snellen-row-letters" style="--snellen-size:0.9rem" aria-hidden="true">D&nbsp;E&nbsp;F&nbsp;P&nbsp;O&nbsp;T&nbsp;E&nbsp;C</span><span class="snellen-row-number" aria-hidden="true">8</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/15" aria-label="Select 20 over 15 line, L E F O D P C T" aria-pressed="false" onclick="app.selectSnellenLine('20/15', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/15</span><span class="snellen-row-letters" style="--snellen-size:0.675rem" aria-hidden="true">L&nbsp;E&nbsp;F&nbsp;O&nbsp;D&nbsp;P&nbsp;C&nbsp;T</span><span class="snellen-row-number" aria-hidden="true">9</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/13" aria-label="Select 20 over 13 line, F D P L T C E O" aria-pressed="false" onclick="app.selectSnellenLine('20/13', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/13</span><span class="snellen-row-letters" style="--snellen-size:0.585rem" aria-hidden="true">F&nbsp;D&nbsp;P&nbsp;L&nbsp;T&nbsp;C&nbsp;E&nbsp;O</span><span class="snellen-row-number" aria-hidden="true">10</span>
+                </button>
+                <button type="button" class="snellen-row" data-snellen="20/10" aria-label="Select 20 over 10 line, P E Z O L C T D" aria-pressed="false" onclick="app.selectSnellenLine('20/10', this)">
+                  <span class="snellen-row-value" aria-hidden="true">20/10</span><span class="snellen-row-letters" style="--snellen-size:0.5rem" aria-hidden="true">P&nbsp;E&nbsp;Z&nbsp;O&nbsp;L&nbsp;C&nbsp;T&nbsp;D</span><span class="snellen-row-number" aria-hidden="true">11</span>
+                </button>
+              </div>
+
+              <p class="snellen-chart-note"><strong>Display note:</strong> Letter size depends on device scaling. Use a calibrated display and the prescribed viewing distance before treating this as a clinical Snellen measurement.</p>
+            </section>
+
+            <aside class="snellen-result-card" aria-labelledby="snellen-result-title">
+              <h2 id="snellen-result-title">Record the reading</h2>
+              <p>Tap the smallest line the patient read correctly.</p>
+              <div class="snellen-selected-reading" aria-live="polite"><span>Selected line</span><strong id="snellen-selected-result">Not selected</strong></div>
               <div class="exam-summary-box">
-                <div class="summary-metric">
-                  <span class="summary-label">Target Eye:</span>
-                  <strong class="summary-val" id="exam-active-eye-tag">OD</strong>
-                </div>
-                <div class="summary-metric">
-                  <span class="summary-label">Fixation Rail:</span>
-                  <strong class="summary-val" id="exam-active-dist-tag">40cm</strong>
-                </div>
+                <div class="summary-metric"><span class="summary-label">Patient</span><strong class="summary-val" id="exam-patient-summary">—</strong></div>
+                <div class="summary-metric"><span class="summary-label">Distance</span><strong class="summary-val" id="exam-active-dist-tag">40cm</strong></div>
               </div>
+              <button type="button" class="btn-maroon-pill-large snellen-record-btn" id="snellen-record-btn" onclick="app.completeSnellenTest()" disabled>Record result</button>
+              <button type="button" class="btn-outline-maroon snellen-clear-btn" onclick="app.clearSnellenSelection()">Clear selected line</button>
+            </aside>
             </div>
           </div>
         </section>
@@ -1085,7 +1109,7 @@
               </div>
               <div class="catalog-body">
                 <h3 class="catalog-title">Near Visual Acuity</h3>
-                <p class="catalog-desc">Snellen tumbling E and letter progression calibrated for 40cm reading distance.</p>
+                <p class="catalog-desc">Full-size responsive Snellen letter chart with operator-recorded smallest readable line.</p>
                 <button class="catalog-btn">Launch Exam &rarr;</button>
               </div>
             </div>
@@ -1273,7 +1297,7 @@
       <div class="modal-header-row">
         <div>
           <h3 class="modal-title">Visual Acuity Result</h3>
-          <span style="font-size:12px; color:var(--text-muted);">Near Visual Acuity (Snellen &amp; Tumbling E)</span>
+          <span style="font-size:12px; color:var(--text-muted);">Near Visual Acuity Snellen Chart</span>
         </div>
         <button class="btn-close-circle" onclick="app.closeExamResultModal()">&times;</button>
       </div>
@@ -1281,7 +1305,7 @@
       <div style="text-align:center; padding:18px 0; background:var(--input-bg); border-radius:var(--radius-lg); margin-bottom:16px;">
         <span style="font-size:38px; font-weight:800; color:var(--primary-maroon);" id="res-exam-snellen">20/20</span>
         <div style="font-size:12px; color:var(--text-muted); margin-top:2px;" id="res-exam-logmar">LogMAR 0.00</div>
-        <div id="res-exam-verdict-badge" class="status-badge-green">Normal Visual Acuity</div>
+        <div id="res-exam-verdict-badge" class="status-badge-neutral">Operator-recorded Snellen result</div>
         <div style="font-size:11px; color:var(--text-muted); margin-top:10px; padding:0 8px;" id="res-exam-clinical-note"></div>
       </div>
 
@@ -1295,8 +1319,8 @@
           <strong id="res-exam-distance" style="font-size:13px;">40cm</strong>
         </div>
         <div style="flex:1; text-align:center; background:var(--input-bg); border-radius:var(--radius-md); padding:8px;">
-          <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">Accuracy</div>
-          <strong id="res-exam-accuracy" style="font-size:13px;">8/8</strong>
+          <div style="font-size:10px; color:var(--text-muted); text-transform:uppercase;">Smallest line read</div>
+          <strong id="res-exam-accuracy" style="font-size:13px;">—</strong>
         </div>
       </div>
 

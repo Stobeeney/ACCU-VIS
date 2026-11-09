@@ -6,7 +6,7 @@ This directory contains the user interface implementation for the **Accu-Vis** o
 
 - `index.html` — Zero-dependency Single Page Application shell containing all 9 clinical screens.
 - `app.css` — Complete design system adhering to the Black & Yellow theme (`#090909`, `#171717`, `#FFD400`) and the isolated neutral white clinical optotype canvas (`#FFFFFF`).
-- `app.js` — Client state machine with `MockTrackingProvider`, live WebRTC camera preview toggle, 6-step fixture checklist wizard, Tumbling E / Landolt C / Snellen acuity test engine, and local records persistence.
+- `app.js` — Client state machine with live WebRTC camera preview, fixture controls, full Snellen chart line selection, result logging, and local record persistence.
 - `server.py` — Zero-dependency Python development server with automatic port detection and CORS support.
 - `android-compose/` — Reference native Android Jetpack Compose architecture implementing the identical specifications, data models, tracking interfaces, and clinical screens.
 
@@ -59,12 +59,10 @@ The server will automatically start on `http://localhost:8080`.
    - Face alignment guide oval and target crosshair
    - Real-time fixation stability score & center calibration button
 
-6. **Screen 6: Vision Test (Acuity Presentation)**
-   - **Clinical Optotype Canvas**: Strictly isolated neutral white field (`#FFFFFF`) with pure black optotypes (`#000000`)
-   - Real-time fixation status badge (Green = Fixated, Red = Loss of Fixation)
-   - **Operator Keypad Controls**: High-visibility D-pad (Up, Down, Left, Right) with `>= 48dp` touch targets
-   - Dedicated "Cannot See / Unsure" and "Repeat Stimulus" buttons
-   - Keyboard shortcuts: Arrow keys (Up, Down, Left, Right), Space (Cannot See), R (Repeat), Esc (Abort)
+6. **Screen 6: Near Visual Acuity (Full Snellen Chart)**
+   - Full 11-line black-on-white chart, from 20/200 through 20/10
+   - Operator selects the smallest line the patient read correctly; the selected Snellen value and derived LogMAR flow into the result modal and saved record
+   - Responsive chart rows and an operator note that display sizing must be calibrated before clinical interpretation
 
 7. **Screen 7: Results & Clinical Report**
    - Summary card with Final Snellen Acuity (e.g. 20/20), LogMAR (+0.00), and Decimal Acuity
