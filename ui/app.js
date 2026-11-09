@@ -763,9 +763,6 @@ class AccuVisApp {
     if (!def) return;
     this.jaegerState.level = level;
 
-    const textEl = document.getElementById('jaeger-reading-text');
-    if (textEl) textEl.style.fontSize = `${def.sizePx}px`;
-
     const activeLabelEl = document.getElementById('jaeger-active-level');
     if (activeLabelEl) activeLabelEl.textContent = level;
 
@@ -773,7 +770,16 @@ class AccuVisApp {
     if (equivEl) equivEl.textContent = def.equiv;
 
     document.querySelectorAll('.jaeger-level-btn').forEach(btn => {
-      btn.classList.toggle('active', btn.dataset.level === level);
+      const selected = btn.dataset.level === level;
+      btn.classList.toggle('active', selected);
+      btn.setAttribute('aria-pressed', String(selected));
+    });
+    document.querySelectorAll('.jaeger-reading-line').forEach(line => {
+      const lineDef = this.jaegerState.levels[line.dataset.level];
+      if (lineDef) line.style.setProperty('--jaeger-size', `${lineDef.sizePx}px`);
+      const selected = line.dataset.level === level;
+      line.classList.toggle('selected', selected);
+      line.setAttribute('aria-pressed', String(selected));
     });
   }
 

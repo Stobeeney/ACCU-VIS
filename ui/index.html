@@ -986,14 +986,21 @@
           </div>
 
           <div class="exam-desktop-grid">
-            <!-- Left Panel: Reading Card -->
+            <!-- Full J1-J7 near-reading chart: all sentences remain visible together. -->
             <div class="optotype-stimulus-card">
-              <div class="optotype-display-box" style="align-items:flex-start; justify-content:flex-start; padding:32px;">
-                <p id="jaeger-reading-text" style="font-family:var(--font-main); font-weight:600; color:#000000; line-height:1.5; max-width:420px; margin:0;">
-                  The quick brown fox jumps over the lazy dog near the quiet riverbank at dawn.
-                </p>
+              <div class="optotype-display-box jaeger-chart-box">
+                <div id="jaeger-reading-text" class="jaeger-reading-chart" aria-label="Full Jaeger's near-reading chart">
+                  <button type="button" class="jaeger-reading-line" data-level="J1" aria-pressed="false" aria-label="Select J1 line: Bright stars shine at night." onclick="app.setJaegerLevel('J1')"><span class="jaeger-line-label" aria-hidden="true">J1</span><span>Bright stars shine at night.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J2" aria-pressed="false" aria-label="Select J2 line: The quick brown fox jumps over the lazy dog." onclick="app.setJaegerLevel('J2')"><span class="jaeger-line-label" aria-hidden="true">J2</span><span>The quick brown fox jumps over the lazy dog.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J3" aria-pressed="false" aria-label="Select J3 line: The children played beside the river." onclick="app.setJaegerLevel('J3')"><span class="jaeger-line-label" aria-hidden="true">J3</span><span>The children played beside the river.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J4" aria-pressed="false" aria-label="Select J4 line: Please read each sentence aloud with care." onclick="app.setJaegerLevel('J4')"><span class="jaeger-line-label" aria-hidden="true">J4</span><span>Please read each sentence aloud with care.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J5" aria-pressed="false" aria-label="Select J5 line: A warm breeze moved softly through the trees." onclick="app.setJaegerLevel('J5')"><span class="jaeger-line-label" aria-hidden="true">J5</span><span>A warm breeze moved softly through the trees.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J6" aria-pressed="false" aria-label="Select J6 line: Morning light fell across the open garden." onclick="app.setJaegerLevel('J6')"><span class="jaeger-line-label" aria-hidden="true">J6</span><span>Morning light fell across the open garden.</span></button>
+                  <button type="button" class="jaeger-reading-line" data-level="J7" aria-pressed="false" aria-label="Select J7 line: Yesterday, the family visited a small museum in town." onclick="app.setJaegerLevel('J7')"><span class="jaeger-line-label" aria-hidden="true">J7</span><span>Yesterday, the family visited a small museum in town.</span></button>
+                </div>
+                <p class="jaeger-chart-note">Sample Jaeger-style sentences. Text size depends on device scaling; use a calibrated display and prescribed viewing distance for clinical interpretation.</p>
                 <div class="optotype-meta-footer">
-                  <span>Line <strong id="jaeger-active-level">J2</strong></span>
+                  <span>Selected line <strong id="jaeger-active-level">J2</strong></span>
                   <span>&bull;</span>
                   <span id="jaeger-equiv-tag">~20/25 Equivalent</span>
                 </div>
@@ -1003,16 +1010,16 @@
             <!-- Right Panel: Operator Level Selector -->
             <div class="exam-keypad-card">
               <h3 class="keypad-title">Operator: Smallest Line Read Comfortably</h3>
-              <p class="keypad-sub">Have the patient read aloud; select the smallest legible line</p>
+              <p class="keypad-sub">Have the patient read each sentence aloud; select the smallest line read comfortably</p>
 
               <div class="jaeger-level-row">
-                <button type="button" class="jaeger-level-btn" data-level="J1" onclick="app.setJaegerLevel('J1')">J1</button>
-                <button type="button" class="jaeger-level-btn" data-level="J2" onclick="app.setJaegerLevel('J2')">J2</button>
-                <button type="button" class="jaeger-level-btn" data-level="J3" onclick="app.setJaegerLevel('J3')">J3</button>
-                <button type="button" class="jaeger-level-btn" data-level="J4" onclick="app.setJaegerLevel('J4')">J4</button>
-                <button type="button" class="jaeger-level-btn" data-level="J5" onclick="app.setJaegerLevel('J5')">J5</button>
-                <button type="button" class="jaeger-level-btn" data-level="J6" onclick="app.setJaegerLevel('J6')">J6</button>
-                <button type="button" class="jaeger-level-btn" data-level="J7" onclick="app.setJaegerLevel('J7')">J7</button>
+                <button type="button" class="jaeger-level-btn" data-level="J1" aria-pressed="false" onclick="app.setJaegerLevel('J1')">J1</button>
+                <button type="button" class="jaeger-level-btn" data-level="J2" aria-pressed="false" onclick="app.setJaegerLevel('J2')">J2</button>
+                <button type="button" class="jaeger-level-btn" data-level="J3" aria-pressed="false" onclick="app.setJaegerLevel('J3')">J3</button>
+                <button type="button" class="jaeger-level-btn" data-level="J4" aria-pressed="false" onclick="app.setJaegerLevel('J4')">J4</button>
+                <button type="button" class="jaeger-level-btn" data-level="J5" aria-pressed="false" onclick="app.setJaegerLevel('J5')">J5</button>
+                <button type="button" class="jaeger-level-btn" data-level="J6" aria-pressed="false" onclick="app.setJaegerLevel('J6')">J6</button>
+                <button type="button" class="jaeger-level-btn" data-level="J7" aria-pressed="false" onclick="app.setJaegerLevel('J7')">J7</button>
               </div>
 
               <div class="exam-summary-box">

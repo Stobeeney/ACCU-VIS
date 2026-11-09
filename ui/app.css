@@ -1282,11 +1282,13 @@ html.logged-out #view-login {
   display: grid;
   grid-template-columns: repeat(7, 1fr);
   gap: 8px;
+  width: 100%;
   margin: 16px 0;
 }
 
 .jaeger-level-btn {
-  height: 40px;
+  min-width: 0;
+  min-height: 44px;
   background: var(--input-bg);
   border: 1.5px solid var(--input-border);
   border-radius: var(--radius-md);
@@ -1308,6 +1310,76 @@ html.logged-out #view-login {
   border-color: var(--primary-maroon);
   color: #FFFFFF;
   box-shadow: 0 3px 10px rgba(74, 14, 23, 0.20);
+}
+
+.jaeger-chart-box {
+  align-items: stretch;
+  justify-content: flex-start;
+  min-height: clamp(360px, 52vh, 620px);
+  padding: 18px 16px 58px;
+}
+
+.jaeger-reading-chart {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  width: 100%;
+}
+
+.jaeger-reading-line {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 38px;
+  border: 1px solid transparent;
+  border-bottom-color: #eee9e3;
+  border-radius: 5px;
+  background: #fff;
+  color: #111;
+  cursor: pointer;
+  font-family: var(--font-main);
+  font-size: var(--jaeger-size, 1rem);
+  font-weight: 600;
+  line-height: 1.45;
+  text-align: center;
+  touch-action: manipulation;
+}
+
+.jaeger-reading-line:last-child {
+  border-bottom-color: transparent;
+}
+
+.jaeger-reading-line:hover,
+.jaeger-reading-line:focus-visible {
+  outline: 2px solid var(--primary-maroon);
+  outline-offset: -2px;
+  background: #fffaf0;
+}
+
+.jaeger-reading-line.selected {
+  outline: 2px solid var(--primary-maroon);
+  outline-offset: -2px;
+  background: #fff4d0;
+}
+
+.jaeger-line-label {
+  position: absolute;
+  left: 8px;
+  color: var(--text-muted);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+}
+
+.jaeger-chart-note {
+  margin: 10px 4px 0;
+  color: var(--text-muted);
+  font-size: 10px;
+  line-height: 1.45;
+  text-align: center;
 }
 
 /* Color Vision Multiple-Choice Grid */
@@ -3383,6 +3455,16 @@ html.logged-out #view-login {
 
   .jaeger-level-row {
     grid-template-columns: repeat(auto-fit, minmax(40px, 1fr));
+  }
+
+  .jaeger-chart-box {
+    min-height: 0;
+    padding: 14px 8px 58px;
+  }
+
+  .jaeger-reading-line {
+    padding-right: 30px;
+    padding-left: 30px;
   }
 
   /* Test Catalog */
