@@ -355,7 +355,7 @@ class AccuVisApp {
           <div class="patient-details-content">
             <dl><div><dt>Patient</dt><dd>${this.escapeHtml(p.full_name)}</dd></div><div><dt>MRN</dt><dd>${this.escapeHtml(p.mrn)}</dd></div><div><dt>Age</dt><dd>${this.escapeHtml(p.age || '—')}</dd></div><div><dt>Gender</dt><dd>${this.escapeHtml(p.gender || '—')}</dd></div><div><dt>Preferred eye</dt><dd>${this.escapeHtml(p.eye_preference || 'OD')}</dd></div><div><dt>Notes</dt><dd>${this.escapeHtml(p.notes || '—')}</dd></div></dl>
             <h4>Measurement history</h4><ul>${detailsHtml}</ul>
-            <button class="btn-outline-maroon patient-download-btn" onclick="app.exportPatientJSONByIndex(${dbIndex})">Download patient details and results</button>
+            <button class="btn-outline-maroon patient-download-btn" onclick="app.exportPatientPDFByIndex(${dbIndex})">Download patient details and results (PDF)</button>
           </div>
         </details>
         </article>
@@ -372,22 +372,146 @@ class AccuVisApp {
     if (patient) this.selectRecentPatient(patient.mrn);
   }
 
-  exportPatientJSONByIndex(index) {
+  exportPatientPDFByIndex(index) {
     const patient = (this.dbPatients || [])[index];
-    if (patient) this.downloadPatientExport(patient);
+    if (patient) this.downloadPatientPDF(patient);
   }
 
-  downloadPatientExport(patient) {
+  downloadPatientPDF(patient) {
     const logs = (this.dbLogs || []).filter(log => log.mrn === patient.mrn);
     const localRecords = (this.records || []).filter(record => record.patientId === patient.mrn || record.mrn === patient.mrn);
-    const payload = { exported_at: new Date().toISOString(), patient, measurement_results: logs, local_session_records: localRecords };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const pages = [];
+    let pageCommands = [];
+    let cursorY = 680;
+    const pageWidth = 612;
+    const margin = 52;
+
+    const cleanText = value => String(value ?? 'Not recorded')
+      .replace(/[\r\n\t]+/g, ' ')
+      .replace(/[\u2010-\u2015]/g, '-')
+      .replace(/[\u2022\u00b7]/g, '-')
+      .replace(/[\u2018\u2019]/g, "'")
+      .replace(/[\u201c\u201d]/g, '"')
+      .replace(/[^\x20-\x7e\xa0-\xff]/g, '?')
+      .replace(/[\\()]/g, '\\$&');
+    const textCommand = (text, x, y, size = 10, bold = false, color = '0.16 0.10 0.11') =>
+      `BT /${bold ? 'F2' : 'F1'} ${size} Tf ${color} rg 1 0 0 1 ${x} ${y} Tm (${cleanText(text)}) Tj ET`;
+    const wrapText = (value, maxChars) => {
+      const words = cleanText(value).split(/\s+/);
+      const lines = [];
+      let line = '';
+      for (const word of words) {
+        const next = line ? `${line} ${word}` : word;
+        if (next.length > maxChars && line) {
+          lines.push(line);
+          line = word;
+        } else line = next;
+      }
+      if (line) lines.push(line);
+      return lines.length ? lines : [''];
+    };
+    const startPage = continuation => {
+      pageCommands = [];
+      pageCommands.push(`0.29 0.055 0.09 rg 0 720 ${pageWidth} 72 re f`);
+      pageCommands.push(textCommand('ACCU-VIS  |  CLINICAL PATIENT REPORT', margin, 765, 9, true, '1 1 1'));
+      pageCommands.push(textCommand(continuation ? 'Patient Results (continued)' : 'Patient Details and Results', margin, 738, 19, true, '1 1 1'));
+      pageCommands.push(textCommand(`${patient.full_name || 'Patient'}  |  MRN: ${patient.mrn || 'Not recorded'}`, margin, 700, 10, true));
+      cursorY = 680;
+    };
+    const finishPage = () => {
+      pageCommands.push(`0.82 0.78 0.78 RG 0.6 w ${margin} 42 m ${pageWidth - margin} 42 l S`);
+      pageCommands.push(textCommand(`Generated ${new Date().toLocaleString()}  |  For clinical record review`, margin, 27, 8, false, '0.40 0.34 0.35'));
+      pageCommands.push(textCommand(`Page ${pages.length + 1}`, pageWidth - margin - 45, 27, 8, false, '0.40 0.34 0.35'));
+      pages.push(pageCommands.join('\n'));
+    };
+    const ensureSpace = height => {
+      if (cursorY - height < 58) {
+        finishPage();
+        startPage(true);
+      }
+    };
+    const addSection = title => {
+      ensureSpace(30);
+      cursorY -= 8;
+      pageCommands.push(textCommand(title, margin, cursorY, 12, true, '0.29 0.055 0.09'));
+      cursorY -= 18;
+    };
+    const addField = (label, value) => {
+      const lines = wrapText(value || 'Not recorded', 74);
+      ensureSpace(lines.length * 14 + 10);
+      pageCommands.push(textCommand(`${label}:`, margin, cursorY, 9, true, '0.40 0.34 0.35'));
+      lines.forEach((line, index) => pageCommands.push(textCommand(line, margin + 112, cursorY - index * 14, 9)));
+      cursorY -= lines.length * 14 + 6;
+    };
+    const addHistoryItem = (title, detail, date) => {
+      const lines = wrapText(detail, 86);
+      ensureSpace(lines.length * 13 + 32);
+      pageCommands.push(textCommand(title, margin, cursorY, 10, true));
+      cursorY -= 14;
+      lines.forEach(line => {
+        pageCommands.push(textCommand(line, margin + 10, cursorY, 9));
+        cursorY -= 13;
+      });
+      pageCommands.push(textCommand(date || 'Date unavailable', margin + 10, cursorY, 8, false, '0.40 0.34 0.35'));
+      cursorY -= 19;
+    };
+
+    startPage(false);
+    pageCommands.push(textCommand(`Age: ${patient.age || 'Not recorded'}    Gender: ${patient.gender || 'Not recorded'}    Preferred eye: ${patient.eye_preference || 'OD'}`, margin, cursorY, 9));
+    cursorY -= 18;
+    addField('Notes', patient.notes);
+    addSection(`Measurement History (${logs.length} result${logs.length === 1 ? '' : 's'})`);
+    if (!logs.length) {
+      pageCommands.push(textCommand('No saved measurement results for this patient.', margin, cursorY, 9, false, '0.40 0.34 0.35'));
+      cursorY -= 18;
+    } else {
+      logs.forEach(log => addHistoryItem(
+        `${log.test_type || 'Clinical test'}  |  Eye: ${log.eye || 'Not recorded'}`,
+        `Result: ${log.distance_cm ?? 'Not recorded'} cm  |  Verdict: ${log.verdict || 'Not recorded'}`,
+        log.created_at
+      ));
+    }
+    if (localRecords.length) {
+      addSection(`Additional Saved Sessions (${localRecords.length})`);
+      localRecords.forEach(record => addHistoryItem(
+        `${record.test_type || record.testType || 'Saved session'}  |  Eye: ${record.eye || 'Not recorded'}`,
+        [record.distance, record.acuity, record.fixation].filter(Boolean).join('  |  ') || 'Session details unavailable',
+        record.date || record.created_at
+      ));
+    }
+    finishPage();
+
+    const objects = [];
+    const addObject = value => { objects.push(value); return objects.length; };
+    const catalogId = addObject('<< /Type /Catalog /Pages 2 0 R >>');
+    const pagesId = addObject('');
+    const fontRegularId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>');
+    const fontBoldId = addObject('<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica-Bold /Encoding /WinAnsiEncoding >>');
+    const pageIds = [];
+    pages.forEach(content => {
+      const contentId = addObject(`<< /Length ${content.length} >>\nstream\n${content}\nendstream`);
+      const pageId = addObject(`<< /Type /Page /Parent ${pagesId} 0 R /MediaBox [0 0 ${pageWidth} 792] /Resources << /Font << /F1 ${fontRegularId} 0 R /F2 ${fontBoldId} 0 R >> >> /Contents ${contentId} 0 R >>`);
+      pageIds.push(pageId);
+    });
+    objects[pagesId - 1] = `<< /Type /Pages /Kids [${pageIds.map(id => `${id} 0 R`).join(' ')}] /Count ${pageIds.length} >>`;
+    let pdf = '%PDF-1.4\n';
+    const offsets = [0];
+    objects.forEach((object, index) => {
+      offsets.push(pdf.length);
+      pdf += `${index + 1} 0 obj\n${object}\nendobj\n`;
+    });
+    const xrefOffset = pdf.length;
+    pdf += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+    offsets.slice(1).forEach(offset => { pdf += `${String(offset).padStart(10, '0')} 00000 n \n`; });
+    pdf += `trailer\n<< /Size ${objects.length + 1} /Root ${catalogId} 0 R >>\nstartxref\n${xrefOffset}\n%%EOF`;
+    const pdfBytes = Uint8Array.from(pdf, char => char.charCodeAt(0) & 0xff);
+    const blob = new Blob([pdfBytes], { type: 'application/pdf' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.download = `accuvis_${String(patient.mrn).replace(/[^a-z0-9_-]/gi, '_')}_results.json`;
+    link.download = `accuvis_${String(patient.mrn || 'patient').replace(/[^a-z0-9_-]/gi, '_')}_results.pdf`;
     link.click();
-    URL.revokeObjectURL(url);
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
   }
 
   renderLogsTable() {
@@ -1593,22 +1717,6 @@ class AccuVisApp {
     // Return to Step 1: Patient Intake
     this.switchView('intake');
     this.showNotification("Patient Session Saved", `${testType} result (${cm} cm) logged for ${this.currentPatient.name} in database. Ready for next patient!`);
-  }
-
-  exportResultJSON() {
-    const patient = (this.dbPatients || []).find(item => item.mrn === this.currentPatient.id);
-    if (patient) {
-      this.downloadPatientExport(patient);
-      return;
-    }
-    const payload = { exported_at: new Date().toISOString(), patient: this.currentPatient, local_session_records: (this.records || []).filter(record => record.patientId === this.currentPatient.id || record.mrn === this.currentPatient.id) };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
-    const url = URL.createObjectURL(blob);
-    const link = document.createElement('a');
-    link.href = url;
-    link.download = `accuvis_${String(this.currentPatient.id).replace(/[^a-z0-9_-]/gi, '_')}_results.json`;
-    link.click();
-    URL.revokeObjectURL(url);
   }
 
   updateDashboardMetrics() {
