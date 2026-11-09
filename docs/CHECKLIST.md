@@ -8,7 +8,7 @@ Last reviewed: 2026-11-08. The calibrated 40–20 cm range is user-confirmed. Fi
 ## 0. Design facts everything depends on
 
 - The **camera is stationary** and tracks the eyes. The motor-driven carriage carries the fixation target. The rail UI offers 20, 4 and 2 cm endpoints; the selected endpoint sets the approach target, while firmware permits a software floor of 2 cm. Only 40–20 cm is user-confirmed; physical travel below 20 cm remains unverified. Rail distance must not be used to scale camera geometry.
-- Approach is a **hybrid**: fast continuous sweep from 40 cm to the slow zone (20 cm), then small slow steps with a dwell at each stop while the tracker reads the eye.
+- The website always runs a continuous sweep to the selected 20, 4 or 2 cm endpoint. Eye samples are binned using the latest rail telemetry and estimated position; continuous position accuracy still needs physical validation.
 - Rail position is **open-loop** (no limit switch yet). 40 cm = parked home. `1 cm = 800 microsteps` (200 steps x 16 microsteps / 4 cm per rev, from the measured ~40 mm per revolution; earlier assumed 8 mm).
 - Speed ceiling in firmware: `RAIL_MAX_SPEED_CM_S = 0.75` (600 steps/s). The app's 0.8 / 1.5 / 2.5 cm/s pills are clamped to this.
 
@@ -81,12 +81,11 @@ Done:
 - [x] Rail enable toggle, URL field, connection/calibration status pill
 - [x] Approach, jog, home, stop wired to the real rail
 - [x] Speed pill value is sent to the firmware; the status pill shows the speed actually applied (and "capped from X")
-- [x] Hybrid approach (fast zone, slow steps with dwell) configured in `dotState`; `hybridSteps:false` gives one continuous sweep
+- [x] Continuous sweep applies to every selectable endpoint and samples against telemetry-estimated rail position
 - [x] Rail connection lost mid-sequence stops the measurement
 
 Pending:
-- [ ] Run the hybrid flow against the real board (only syntax-checked so far)
-- [ ] UI to edit the slow zone start, step size, dwell, slow speed (currently constants in `dotState`)
+- [ ] Run the continuous flow against the real board; verify position estimates and auto-stop distance against physical measurements
 - [ ] Relabel or disable the 1.5 / 2.5 cm/s pills while the ceiling is 0.75 cm/s (they currently all run at 0.75)
 - [ ] Extract rail code into its own module (`rail-client.js`) so it can be unit-tested with a mock
 - [ ] Heartbeat to the firmware while moving (pairs with the firmware watchdog)
@@ -99,7 +98,7 @@ Owner: Shinra (Optimus for the optics/mount)
 
 - [ ] **Feasibility run:** with the camera fixed, record a real face while the target is at each intended endpoint (20, 4 and 2 cm), only after mechanical validation. For each position, check target fixation, face detection, stable iris landmarks, focus and both eyes in frame. Result: ______
 - [ ] Phone model and lens chosen (main / ultrawide / macro); minimum focus distance known: ______ cm
-- [ ] Continuous vs stepped tracking comparison: tracker quality at 0.5 cm/s moving vs at a stop. Decide the slow-zone mode from the data
+- [ ] Compare continuous tracking quality at 0.5 cm/s and 0.75 cm/s against stationary samples
 - [ ] Confirm the clinically usable minimum for each selected rail range; do not infer a break below the tested endpoint
 - [ ] Verify in the deployed website that camera crop/geometry stays fixed as the target moves; rail position is used only as target-to-eye distance for break sampling and result reporting
 - [ ] Iris-size distance estimate as a cross-check against the step count (iris about 11.7 mm). Measure its error against the ruler first; use only as a warning, not as truth
@@ -143,7 +142,7 @@ Owner: Takumi. **Do before any real patient data is stored.**
 Owner: Verity
 
 - [ ] Mock-rail smoke test: app against a fake `/status /move /jog /stop` server (no hardware)
-- [ ] Unit tests for the rail client: clamp, jog sign convention (device + = closer, app + = farther), hybrid loop, connection loss
+- [ ] Unit tests for the rail client: clamp, jog sign convention (device + = closer, app + = farther), continuous sweep, connection loss
 - [ ] API tests: auth required, no cross-patient access, MRN uniqueness
 - [ ] Accessibility pass on the operator screens (touch targets >= 48 dp, contrast)
 - [ ] CI that runs the above plus the PlatformIO build (`pio run`)

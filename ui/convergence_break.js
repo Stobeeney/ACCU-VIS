@@ -19,10 +19,11 @@
  *   positions in a row. The reported distance is the FIRST position of that run, not the one that
  *   confirmed it.
  *
- * Why only stationary samples
- *   The page learns the rail's distance from polling, up to ~1 s late. A sample is therefore used
- *   only inside a window in the middle of a dwell, where the distance label is certain. The window is
- *   [stableSince + SETTLE_MS, stableSince + dwellMs - POLL_LAG_MS].
+ * Position sampling
+ *   Stepped mode only uses settled samples during each dwell window. Continuous mode projects the
+ *   latest rail position forward using the reported motion speed and telemetry age, then bins frames
+ *   by that estimated position. Stale continuous telemetry is discarded; its position estimate is
+ *   approximate and still needs validation against the physical rail.
  *
  * No clinical validation exists yet: treat the result as a measurement to compare with a clinician,
  * not as a diagnosis.
@@ -46,7 +47,9 @@
     confirmBins: 2,           // consecutive dropped positions needed
     minRiseUnits: 0.05,       // the eyes must first have converged by this much (else no evidence)
     minQuality: 0.6,
-    minCoverage: 0.5          // share of expected positions that need a usable reading
+    minCoverage: 0.5,         // share of expected positions that need a usable reading
+    continuous: false,
+    maxStatusAgeMs: 1500      // reject continuous samples when rail telemetry is too stale
   };
 
   const median = (a) => {
@@ -67,7 +70,10 @@
     }
 
     reset() {
-      this.rail = { distanceCm: null, moving: true, stableSince: null, dwellMs: 2000 };
+      this.rail = {
+        distanceCm: null, moving: true, stableSince: null, updatedAt: null,
+        dwellMs: 2000, speedCmPerSec: 0, direction: -1, sampleEnabled: true
+      };
       this.baselineRaw = [];
       this.bins = new Map();       // key -> { cm, vals: [] }
       this.frames = 0;
@@ -78,20 +84,40 @@
     }
 
     /** dwellMs = the profile's pause at every step; startCm / endCm = expected range (for coverage) */
-    configure({ dwellMs, startCm, endCm }) {
+    configure({ dwellMs, startCm, endCm, continuous }) {
       if (dwellMs) this.rail.dwellMs = dwellMs;
       if (startCm !== undefined) this.startCm = startCm;
       if (endCm !== undefined) this.lowestCm = endCm;
+      if (continuous !== undefined) this.o.continuous = !!continuous;
     }
 
     /** Call with every rail status the page receives. t in ms. */
-    updateRail({ t, distanceCm, moving }) {
+    updateRail({ t, distanceCm, moving, speedCmPerSec = 0, distanceAgeMs = 0, direction = -1, sampleEnabled = true }) {
       const r = this.rail;
-      const changed = r.distanceCm === null || Math.abs(distanceCm - r.distanceCm) > 0.02 || moving;
-      if (changed) r.stableSince = moving ? null : t;
+      const isMoving = !!moving;
+      const ageMs = Math.max(0, Number(distanceAgeMs) || 0);
+      const stale = isMoving && this.o.continuous && ageMs > this.o.maxStatusAgeMs;
+      const reportedDistanceCm = Number(distanceCm);
+      const speed = Math.max(0, Number(speedCmPerSec) || 0);
+      const travelDirection = direction < 0 ? -1 : 1;
+      const correctedDistanceCm = reportedDistanceCm + (isMoving ? travelDirection * speed * ageMs / 1000 : 0);
+      const changed = r.distanceCm === null || Math.abs(correctedDistanceCm - r.distanceCm) > 0.02 || isMoving;
+      if (changed) r.stableSince = isMoving ? null : t;
       else if (r.stableSince === null) r.stableSince = t;
-      r.distanceCm = distanceCm;
-      r.moving = !!moving;
+      r.distanceCm = correctedDistanceCm;
+      r.moving = isMoving;
+      r.updatedAt = t;
+      r.speedCmPerSec = speed;
+      r.direction = travelDirection;
+      r.sampleEnabled = !!sampleEnabled && !stale;
+    }
+
+    positionAt(t) {
+      const r = this.rail;
+      if (r.distanceCm === null || !r.sampleEnabled) return null;
+      if (!r.moving || !this.o.continuous || r.updatedAt === null) return r.distanceCm;
+      const projected = r.distanceCm + r.direction * r.speedCmPerSec * Math.max(0, t - r.updatedAt) / 1000;
+      return Math.max(this.lowestCm ?? 0, Math.min(40, projected));
     }
 
     /** raw = hA - hB for this frame; usable/quality come from the tracker. */
@@ -99,18 +125,22 @@
       this.frames++;
       const r = this.rail;
       if (!usable || !(quality >= this.o.minQuality) || !Number.isFinite(raw)) return;
-      if (r.distanceCm === null || r.moving || r.stableSince === null) return;
-      const age = t - r.stableSince;
-      if (age < this.o.settleMs) return;
+      if (r.distanceCm === null || !r.sampleEnabled || (r.moving && !this.o.continuous)) return;
+      const movingContinuous = r.moving && this.o.continuous;
+      const age = r.stableSince === null ? 0 : t - r.stableSince;
+      if (!movingContinuous && (r.stableSince === null || age < this.o.settleMs)) return;
+      const sampleDistanceCm = this.positionAt(t);
+      if (sampleDistanceCm === null) return;
 
-      if (r.distanceCm >= this.o.baselineCm) {
+      if (!movingContinuous && sampleDistanceCm >= this.o.baselineCm) {
         this.baselineRaw.push(raw);               // rail resting at the start: no dwell to respect
         if (this.baselineRaw.length > 400) this.baselineRaw.shift();
         return;
       }
-      if (age > r.dwellMs - this.o.pollLagMs) return;
+      if (sampleDistanceCm >= this.o.baselineCm) return;
+      if (!movingContinuous && age > r.dwellMs - this.o.pollLagMs) return;
 
-      const key = Math.round(r.distanceCm / this.o.binCm);
+      const key = Math.round(sampleDistanceCm / this.o.binCm);
       let bin = this.bins.get(key);
       if (!bin) { bin = { cm: key * this.o.binCm, vals: [] }; this.bins.set(key, bin); }
       if (bin.vals.length < 300) bin.vals.push(raw);

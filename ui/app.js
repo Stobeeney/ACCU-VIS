@@ -81,13 +81,7 @@ class AccuVisApp {
       alignmentScore: 99.2,
       animationFrameId: null,
       lastTimestamp: 0,
-      // Real-rail hybrid approach: fast sweep (speed pills) down to
-      // slowZoneStartCm, then slowStepCm steps at slowSpeedCmPerSec with a
-      // slowDwellMs pause at each stop. Set hybridSteps:false for one continuous sweep.
-      hybridSteps: true,
-      slowZoneStartCm: 30.0,
-      slowStepCm: 0.5,
-      slowSpeedCmPerSec: 0.5,
+      // NPC rail approach is one continuous sweep to the selected endpoint.
       slowDwellMs: 2000
     };
     this.eyeTracker = null;
@@ -349,27 +343,69 @@ class AccuVisApp {
       return;
     }
 
-    listEl.innerHTML = patients.map(p => {
+    listEl.innerHTML = patients.map((p, index) => {
+      const dbIndex = (this.dbPatients || []).indexOf(p);
       const initials = p.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
       const avatarHtml = `<div class="patient-card-avatar" style="width:38px; height:38px; font-size:13px;">${initials}</div>`;
 
-      const latestLog = (this.dbLogs || []).find(l => l.mrn === p.mrn);
+      const patientLogs = (this.dbLogs || []).filter(l => l.mrn === p.mrn);
+      const latestLog = patientLogs[0];
       const latestResultHtml = latestLog
-        ? `<div style="font-size:11px; color:var(--primary-maroon); margin-top:2px; font-weight:600;">Latest: ${latestLog.test_type || 'NPC'} ${latestLog.distance_cm}cm &mdash; ${latestLog.verdict}</div>`
+        ? `<div style="font-size:11px; color:var(--primary-maroon); margin-top:2px; font-weight:600;">Latest: ${this.escapeHtml(latestLog.test_type || 'NPC')} ${this.escapeHtml(latestLog.distance_cm ?? '—')}cm &mdash; ${this.escapeHtml(latestLog.verdict || '—')}</div>`
         : `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">No measurement results yet</div>`;
+      const detailsHtml = patientLogs.length
+        ? patientLogs.map(log => `<li><strong>${this.escapeHtml(log.test_type || 'NPC')} · ${this.escapeHtml(log.eye || '—')}</strong><span>${this.escapeHtml(log.distance_cm ?? '—')} cm · ${this.escapeHtml(log.verdict || 'No verdict')}</span><small>${this.escapeHtml(log.created_at || 'Date unavailable')}</small></li>`).join('')
+        : '<li class="patient-no-results">No saved measurement results for this patient.</li>';
 
       return `
-        <div class="patient-desktop-card" onclick="app.selectRecentPatient('${p.mrn}')" style="margin-bottom:8px;">
+        <article class="patient-record-card">
+        <div class="patient-desktop-card" style="margin-bottom:0;">
           ${avatarHtml}
           <div class="patient-card-info">
-            <h3 class="patient-card-name">${p.full_name} <small style="font-weight:normal; opacity:0.75; font-family:var(--font-mono); font-size:11px;">(${p.mrn})</small></h3>
-            <div class="patient-card-demographics">Age: ${p.age || 28} &nbsp;&bull;&nbsp; Gender: ${p.gender || 'Male'} &nbsp;&bull;&nbsp; Target: ${p.eye_preference || 'OD'}</div>
+            <h3 class="patient-card-name">${this.escapeHtml(p.full_name)} <small style="font-weight:normal; opacity:0.75; font-family:var(--font-mono); font-size:11px;">(${this.escapeHtml(p.mrn)})</small></h3>
+            <div class="patient-card-demographics">Age: ${this.escapeHtml(p.age || '—')} &nbsp;&bull;&nbsp; Gender: ${this.escapeHtml(p.gender || '—')} &nbsp;&bull;&nbsp; Target: ${this.escapeHtml(p.eye_preference || 'OD')}</div>
             ${latestResultHtml}
           </div>
-          <button class="btn-select-patient" title="Launch Test for ${p.full_name}">&rarr;</button>
+          <button class="btn-select-patient" onclick="app.selectRecentPatientByIndex(${dbIndex})" title="Load ${this.escapeHtml(p.full_name)} for testing" aria-label="Load patient for testing">&rarr;</button>
         </div>
+        <details class="patient-record-details">
+          <summary>Patient details and ${patientLogs.length} result${patientLogs.length === 1 ? '' : 's'}</summary>
+          <div class="patient-details-content">
+            <dl><div><dt>Patient</dt><dd>${this.escapeHtml(p.full_name)}</dd></div><div><dt>MRN</dt><dd>${this.escapeHtml(p.mrn)}</dd></div><div><dt>Age</dt><dd>${this.escapeHtml(p.age || '—')}</dd></div><div><dt>Gender</dt><dd>${this.escapeHtml(p.gender || '—')}</dd></div><div><dt>Preferred eye</dt><dd>${this.escapeHtml(p.eye_preference || 'OD')}</dd></div><div><dt>Notes</dt><dd>${this.escapeHtml(p.notes || '—')}</dd></div></dl>
+            <h4>Measurement history</h4><ul>${detailsHtml}</ul>
+            <button class="btn-outline-maroon patient-download-btn" onclick="app.exportPatientJSONByIndex(${dbIndex})">Download patient details and results</button>
+          </div>
+        </details>
+        </article>
       `;
     }).join('');
+  }
+
+  escapeHtml(value) {
+    return String(value ?? '').replace(/[&<>"']/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[char]));
+  }
+
+  selectRecentPatientByIndex(index) {
+    const patient = (this.dbPatients || [])[index];
+    if (patient) this.selectRecentPatient(patient.mrn);
+  }
+
+  exportPatientJSONByIndex(index) {
+    const patient = (this.dbPatients || [])[index];
+    if (patient) this.downloadPatientExport(patient);
+  }
+
+  downloadPatientExport(patient) {
+    const logs = (this.dbLogs || []).filter(log => log.mrn === patient.mrn);
+    const localRecords = (this.records || []).filter(record => record.patientId === patient.mrn || record.mrn === patient.mrn);
+    const payload = { exported_at: new Date().toISOString(), patient, measurement_results: logs, local_session_records: localRecords };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `accuvis_${String(patient.mrn).replace(/[^a-z0-9_-]/gi, '_')}_results.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   renderLogsTable() {
@@ -386,12 +422,12 @@ class AccuVisApp {
       const dateStr = l.created_at ? (l.created_at.includes('T') ? l.created_at.split('T')[0] : l.created_at) : '';
       return `
         <tr>
-          <td><strong>${l.patient_name}</strong><br><small style="color:var(--text-muted); font-family:var(--font-mono); font-size:10px;">${l.mrn}</small></td>
-          <td><span class="log-test-badge">${l.test_type || 'NPC'}</span></td>
-          <td>${l.eye}</td>
-          <td>${l.distance_cm}cm</td>
-          <td>${l.verdict}</td>
-          <td>${dateStr}</td>
+          <td data-label="Patient"><strong>${this.escapeHtml(l.patient_name)}</strong><br><small style="color:var(--text-muted); font-family:var(--font-mono); font-size:10px;">${this.escapeHtml(l.mrn)}</small></td>
+          <td data-label="Test"><span class="log-test-badge">${this.escapeHtml(l.test_type || 'NPC')}</span></td>
+          <td data-label="Eye">${this.escapeHtml(l.eye || '—')}</td>
+          <td data-label="Result">${this.escapeHtml(l.distance_cm ?? '—')}cm</td>
+          <td data-label="Verdict">${this.escapeHtml(l.verdict || '—')}</td>
+          <td data-label="Date">${this.escapeHtml(dateStr || '—')}</td>
         </tr>
       `;
     }).join('');
@@ -1612,11 +1648,19 @@ class AccuVisApp {
   }
 
   exportResultJSON() {
-    const dataStr = "data:text/json;charset=utf-8," + encodeURIComponent(JSON.stringify(this.records[0] || {}, null, 2));
-    const a = document.createElement('a');
-    a.href = dataStr;
-    a.download = `accuvis_exam_${this.currentPatient.id}.json`;
-    a.click();
+    const patient = (this.dbPatients || []).find(item => item.mrn === this.currentPatient.id);
+    if (patient) {
+      this.downloadPatientExport(patient);
+      return;
+    }
+    const payload = { exported_at: new Date().toISOString(), patient: this.currentPatient, local_session_records: (this.records || []).filter(record => record.patientId === this.currentPatient.id || record.mrn === this.currentPatient.id) };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.download = `accuvis_${String(this.currentPatient.id).replace(/[^a-z0-9_-]/gi, '_')}_results.json`;
+    link.click();
+    URL.revokeObjectURL(url);
   }
 
   updateDashboardMetrics() {
@@ -1986,8 +2030,8 @@ class AccuVisApp {
     await this.railApiCall("/status");
   }
 
-  // Cloud approach: the firmware runs the whole fast-then-stepped profile by itself; the page
-  // only starts it, watches it and stops it. A slow or lost connection can't disturb the motion.
+  // Cloud approach: the firmware runs one continuous sweep to the selected endpoint; the page
+  // tracks telemetry-aligned eye samples and watches the profile for completion or auto-stop.
   async startCloudApproach() {
     const ds = this.dotState;
     const rh = this.railHardware;
@@ -2023,13 +2067,15 @@ class AccuVisApp {
     if (target < hardwareMinCm) {
       return giveUp(`Selected ${target.toFixed(0)} cm endpoint is below the ESP8266's configured ${hardwareMinCm.toFixed(0)} cm minimum. No motion command was sent.`);
     }
-    const fastEnd = ds.hybridSteps ? Math.min(DOT_RAIL_HOME_CM, Math.max(ds.slowZoneStartCm, target)) : target;
+    const fastEnd = target;
+    const detectorStartCm = Math.min(DOT_RAIL_HOME_CM, 30.0);
+    const fastSpeed = Math.min(ds.speedCmPerSec, rh.speedCeilingCmS);
 
     // Convergence-break detection needs the eyes' starting position, read while the rail still rests
     // at the start distance. Without a steady reading the approach still runs, but only manually.
     const pillNote = document.getElementById("dot-motor-status-text");
     if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" &&
-        tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: fastEnd, endCm: target })) {
+        tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: detectorStartCm, endCm: target, continuous: true })) {
       measuring = true;
       tracker.setRailState({ distanceCm: st.distance_cm, moving: false });
       const t0 = performance.now();
@@ -2051,10 +2097,10 @@ class AccuVisApp {
     const res = await this.railCloud().command("start_profile", {
       fast_end_cm: fastEnd,
       target_cm: target,
-      step_cm: ds.slowStepCm,
+      step_cm: 0.5,
       dwell_ms: ds.slowDwellMs,
       fast_cm_s: ds.speedCmPerSec,
-      slow_cm_s: ds.slowSpeedCmPerSec
+      slow_cm_s: ds.speedCmPerSec
     });
     if (!res.ok) {
       if (res.authError || res.network) this.noteCloudProblem(res);
@@ -2062,8 +2108,7 @@ class AccuVisApp {
     }
 
     const pillText = document.getElementById("dot-motor-status-text");
-    const fastSpeed = Math.min(ds.speedCmPerSec, rh.speedCeilingCmS);
-    if (pillText) pillText.textContent = `Advancing Rail (${fastSpeed.toFixed(2)} cm/s, then steps below ${fastEnd.toFixed(0)} cm)...`;
+    if (pillText) pillText.textContent = `Continuous sweep to ${target.toFixed(0)} cm (${fastSpeed.toFixed(2)} cm/s)...`;
 
     let sawProfile = false;
     let misses = 0;
@@ -2081,7 +2126,17 @@ class AccuVisApp {
       misses = 0;
       ds.railDistanceCm = s.distance_cm;
       this.updateDotHUD();
-      if (measuring) tracker.setRailState({ distanceCm: s.distance_cm, moving: !!s.moving });
+      if (measuring) {
+        const sampleEnabled = ["FAST", "DWELL", "HELD"].includes(s.profile_state);
+        tracker.setRailState({
+          distanceCm: s.distance_cm,
+          moving: !!s.moving,
+          speedCmPerSec: fastSpeed,
+          distanceAgeMs: Number.isFinite(s.age_s) ? s.age_s * 1000 : 0,
+          direction: s.profile_state === "RETURN" ? 1 : -1,
+          sampleEnabled
+        });
+      }
 
       if (s.profile_state !== "IDLE") sawProfile = true;
 
@@ -2177,14 +2232,17 @@ class AccuVisApp {
       if (statusText) statusText.textContent = `Selected ${targetCm.toFixed(0)} cm endpoint is below the ESP8266's configured ${hwMinCm.toFixed(0)} cm minimum. No motion command was sent.`;
       return;
     }
-    // Hybrid: fast continuous sweep down to the slow zone, then small slow
-    // steps with a dwell at each stop (camera is stationary while tracking).
-    const hybrid = ds.hybridSteps && targetCm < ds.slowZoneStartCm;
-    const firstLegCm = hybrid ? ds.slowZoneStartCm : targetCm;
+    const detectorStartCm = Math.min(DOT_RAIL_HOME_CM, 30.0);
     const tracker = this.eyeTracker;
     ds.breakHandled = false;
     let breakTrackingReady = false;
-    if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" && tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: firstLegCm, endCm: targetCm })) {
+    let actualApproachSpeed = Math.min(ds.speedCmPerSec, this.railHardware.speedCeilingCmS);
+    if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" && tracker.beginBreakDetection({
+      dwellMs: ds.slowDwellMs,
+      startCm: detectorStartCm,
+      endCm: targetCm,
+      continuous: true
+    })) {
       tracker.setRailState({ distanceCm: hwStatus.distance_cm, moving: false });
       const baselineStart = performance.now();
       while (!tracker.breakBaselineReady() && performance.now() - baselineStart < 4000 && ds.isApproaching) {
@@ -2199,13 +2257,14 @@ class AccuVisApp {
         this.showNotification("No automatic break reading", "The camera could not get a steady view of both eyes while the patient fixated on the red target. The rail can still run, but the result will be marked as unconfirmed.");
       }
     }
-    const moveResp = await this.railApiCall("/move", { distance_cm: firstLegCm, speed_cm_s: ds.speedCmPerSec });
+    const moveResp = await this.railApiCall("/move", { distance_cm: targetCm, speed_cm_s: ds.speedCmPerSec });
     if (moveResp && moveResp.ok && typeof moveResp.speed_cm_s === "number") {
       // The firmware clamps to its speed ceiling; show what it really applied.
+      actualApproachSpeed = moveResp.speed_cm_s;
       const pillText = document.getElementById("dot-motor-status-text");
       if (pillText) {
         const capped = moveResp.speed_cm_s + 0.005 < ds.speedCmPerSec ? ` (capped from ${ds.speedCmPerSec})` : "";
-        pillText.textContent = `Advancing Rail (${moveResp.speed_cm_s.toFixed(2)} cm/s${capped})...`;
+        pillText.textContent = `Continuous sweep to ${targetCm.toFixed(0)} cm (${moveResp.speed_cm_s.toFixed(2)} cm/s${capped})...`;
       }
     }
     if (!moveResp || !moveResp.ok) {
@@ -2221,26 +2280,28 @@ class AccuVisApp {
       return;
     }
 
+    const startDistanceCm = hwStatus.distance_cm;
+    let sawMovement = false;
     const poll = async () => {
       if (!this.dotState.isApproaching) return;
       const status = await this.railApiCall("/status");
       if (status && status.ok) {
         this.dotState.railDistanceCm = status.distance_cm;
         this.updateDotHUD();
-        if (breakTrackingReady) tracker.setRailState({ distanceCm: status.distance_cm, moving: !!status.moving });
+        if (status.moving || Math.abs(status.distance_cm - startDistanceCm) > 0.05) sawMovement = true;
+        if (breakTrackingReady) {
+          tracker.setRailState({
+            distanceCm: status.distance_cm,
+            moving: !!status.moving,
+            speedCmPerSec: actualApproachSpeed,
+            distanceAgeMs: Number.isFinite(status.age_s) ? status.age_s * 1000 : 0,
+            direction: -1,
+            sampleEnabled: true
+          });
+        }
         if (!status.moving) {
-          if (hybrid && this.dotState.railDistanceCm > targetCm + 0.05) {
-            // Stopped inside the slow zone: dwell (tracker reads the eye), then step in again.
-            this.railHardware.pollTimer = setTimeout(async () => {
-              if (!this.dotState.isApproaching) return;
-              const stepCm = Math.min(ds.slowStepCm, this.dotState.railDistanceCm - targetCm);
-              const jogResp = await this.railApiCall("/jog", { delta_cm: stepCm, speed_cm_s: ds.slowSpeedCmPerSec });
-              if (!jogResp || !jogResp.ok) {
-                this.stopAndLockMeasurement("Rail connection lost");
-                return;
-              }
-              poll();
-            }, ds.slowDwellMs);
+          if (!sawMovement) {
+            this.railHardware.pollTimer = setTimeout(poll, 200);
             return;
           }
           // End of the calibrated target range: report the eye-tracking result,

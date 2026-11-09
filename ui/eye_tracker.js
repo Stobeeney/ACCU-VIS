@@ -142,19 +142,24 @@ class AccuVisEyeTracker {
   }
 
   // ---- convergence-break detection (see convergence_break.js) ----------------------------------
-  beginBreakDetection({ dwellMs, startCm, endCm } = {}) {
+  beginBreakDetection({ dwellMs, startCm, endCm, continuous = false } = {}) {
     if (!this.breakDetector) return false;
     this.breakDetector.reset();
-    this.breakDetector.configure({ dwellMs, startCm, endCm });
+    this.breakDetector.configure({ dwellMs, startCm, endCm, continuous });
     this.breakActive = true;
     this.trackingResult.breakResult = null;
     return true;
   }
 
   /** Feed with every rail status the page receives. */
-  setRailState({ distanceCm, moving }) {
+  setRailState({ distanceCm, moving, speedCmPerSec, distanceAgeMs, direction, sampleEnabled } = {}) {
     if (typeof distanceCm !== 'number' || !isFinite(distanceCm)) return;
-    if (this.breakDetector && this.breakActive) this.breakDetector.updateRail({ t: performance.now(), distanceCm, moving: !!moving });
+    if (this.breakDetector && this.breakActive) {
+      this.breakDetector.updateRail({
+        t: performance.now(), distanceCm, moving: !!moving,
+        speedCmPerSec, distanceAgeMs, direction, sampleEnabled
+      });
+    }
   }
 
   breakBaselineReady() { return !!(this.breakDetector && this.breakDetector.baselineReady); }
