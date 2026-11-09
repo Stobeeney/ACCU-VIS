@@ -665,6 +665,7 @@ html.logged-out #view-login {
 }
 
 .category-card-desktop {
+  min-width: 0;
   background: var(--card-white);
   border-radius: var(--radius-lg);
   padding: 22px;
@@ -699,6 +700,7 @@ html.logged-out #view-login {
 
 .category-content-desktop {
   flex: 1;
+  min-width: 0;
 }
 
 .category-card-title {
@@ -3010,7 +3012,13 @@ html.logged-out #view-login {
    PHONE / SMALL-SCREEN RESPONSIVE LAYOUT
    ========================================================================== */
 
-@media (max-width: 768px) {
+@media (max-width: 1200px) {
+  .categories-grid-desktop {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 900px) {
   /* Sidebar becomes an off-canvas drawer instead of eating the whole screen */
   .app-sidebar {
     position: fixed;
@@ -3047,6 +3055,14 @@ html.logged-out #view-login {
 
   .mobile-menu-btn {
     display: flex;
+    width: 44px;
+    height: 44px;
+  }
+
+  .topbar-btn {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
   }
 
   /* Topbar: tighter padding, let search flex, hide secondary telemetry */
@@ -3068,6 +3084,10 @@ html.logged-out #view-login {
 
   .active-patient-chip .chip-label,
   .active-patient-chip .chip-mrn {
+    display: none;
+  }
+
+  .active-patient-chip {
     display: none;
   }
 
@@ -3169,6 +3189,12 @@ html.logged-out #view-login {
     padding: 12px;
   }
 
+  .btn-select-patient {
+    width: 44px;
+    height: 44px;
+    flex: 0 0 44px;
+  }
+
   .patient-card-name {
     overflow-wrap: anywhere;
   }
@@ -3190,12 +3216,7 @@ html.logged-out #view-login {
   }
 
   .logs-table thead {
-    position: absolute;
-    width: 1px;
-    height: 1px;
-    overflow: hidden;
-    clip: rect(0, 0, 0, 0);
-    white-space: nowrap;
+    display: none;
   }
 
   .logs-table tbody tr:not(.log-empty-row) {
@@ -3237,8 +3258,15 @@ html.logged-out #view-login {
   }
 
   .pip-header-desktop {
+    flex-direction: column;
     align-items: flex-start;
     gap: 10px;
+  }
+
+  .pip-controls-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
   }
 
   .pip-source-row,
@@ -3249,7 +3277,7 @@ html.logged-out #view-login {
 
   .camera-source-btn,
   .pip-btn {
-    min-height: 40px;
+    min-height: 44px;
     padding: 8px 12px;
     touch-action: manipulation;
   }
@@ -3273,6 +3301,25 @@ html.logged-out #view-login {
 
   .distance-readout-bar .hud-number {
     font-size: clamp(26px, 8vw, 34px);
+  }
+
+  .stepper-buttons-group {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    width: 100%;
+    gap: 8px;
+  }
+
+  .stepper-buttons-group > button {
+    min-width: 0;
+    padding-right: 10px;
+    padding-left: 10px;
+    white-space: normal;
+  }
+
+  .stepper-buttons-group > .btn-stepper-primary {
+    grid-column: 1 / -1;
+    justify-content: center;
   }
 }
 
