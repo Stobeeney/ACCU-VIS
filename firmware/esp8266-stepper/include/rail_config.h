@@ -82,11 +82,11 @@
 #define DIR_INVERT false
 
 // Hard speed ceiling for the web controls. At the calibrated 40mm/rev and
-// 1/16 microstepping, 2.0cm/s is about 1600 steps/s. Verify the loaded rail
+// 1/16 microstepping, 2.5cm/s is about 2000 steps/s. Verify the loaded rail
 // on a bench before using the fastest option near a patient: this is open-loop
 // motion and lost steps would invalidate the reported distance.
 // Expressed in cm/s so they stay correct if the pitch changes again.
-#define RAIL_MAX_SPEED_CM_S 2.0
+#define RAIL_MAX_SPEED_CM_S 2.5
 #define RAIL_ACCEL_CM_S2    2.0   // ~1600 st/s^2 here, same motor load as the tested 1500
 #define STEPPER_MAX_SPEED (RAIL_MAX_SPEED_CM_S * MICROSTEPS_PER_CM)  // microsteps/sec
 #define STEPPER_ACCEL     (RAIL_ACCEL_CM_S2 * MICROSTEPS_PER_CM)     // microsteps/sec^2
@@ -157,7 +157,7 @@
 #define CLOUD_MIN_POLL_MS         250
 #define CLOUD_MAX_POLL_MS       60000
 
-#define FW_VERSION "cloud-0.3"
+#define FW_VERSION "cloud-0.4"
 
 // 1 = at boot, run the HTTP parser's built-in checks and print PASS/FAIL on the serial monitor.
 #define RAIL_HTTP_SELFTEST 1
