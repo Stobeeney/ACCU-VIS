@@ -57,7 +57,7 @@ class AccuVisApp {
       isPreparing: false,
       prepareCancelled: false,
       isApproaching: false,
-      speedCmPerSec: 0.5,
+      speedCmPerSec: 0.75,
       autoStop: true,
       targetStyle: "rose", // rose, laser, contrast, bullseye
       cameraFlipped: false,
@@ -98,7 +98,7 @@ class AccuVisApp {
       moving: false,
       profileState: "IDLE",
       stopReason: "",
-      speedCeilingCmS: 0.75,   // the firmware clamps every speed to this
+      speedCeilingCmS: 2.0,   // firmware cloud-0.3 hard ceiling
       cloud: null,
       healthTimer: null,
       healthBoostUntil: 0,
@@ -2283,7 +2283,7 @@ class AccuVisApp {
       if (transportInput) transportInput.disabled = sweep.active || sweep.starting;
       if (addressInput) addressInput.disabled = sweep.active || sweep.starting;
 
-      const hasNewFirmware = rh.firmwareVersion === 'cloud-0.2';
+      const hasNewFirmware = rh.firmwareVersion === 'cloud-0.3';
       const railProfileActive = Boolean(rh.profileState && rh.profileState !== 'IDLE');
       const readyForMotion = rh.enabled && rh.connected && rh.calibrated && hasNewFirmware && !rh.moving &&
         !railProfileActive &&
@@ -2314,7 +2314,7 @@ class AccuVisApp {
           message = rh.lastError || 'Rail is offline. Check its Wi-Fi connection.';
           tone = 'error';
         } else if (!hasNewFirmware) {
-          message = 'Update the ESP8266 to firmware cloud-0.2 before starting a continuous sweep.';
+          message = 'Update the ESP8266 to firmware cloud-0.3 before starting a continuous sweep.';
           tone = 'error';
         } else if (!rh.calibrated) {
           message = 'Place the carriage at its physical 40 cm mark, then calibrate it.';
@@ -2381,7 +2381,7 @@ class AccuVisApp {
 
     if (!Number.isFinite(nearCm) || !Number.isFinite(farCm) || !Number.isFinite(speedCmS) ||
         nearCm < 2 || farCm > DOT_RAIL_HOME_CM || farCm - nearCm < 0.5 ||
-        ![0.25, 0.5, 0.75].includes(speedCmS)) {
+        ![0.5, 0.75, 2].includes(speedCmS)) {
       this.setClinicalRailStatus('Choose a closer limit from 2–39.5 cm and a reverse point at least 0.5 cm farther, up to 40 cm.', 'error');
       return;
     }
@@ -2411,9 +2411,9 @@ class AccuVisApp {
       this.setClinicalRailStatus('The rail did not report a valid carriage distance. No sweep was started.', 'error');
       return;
     }
-    if (status.fw !== 'cloud-0.2' && rh.firmwareVersion !== 'cloud-0.2') {
+    if (status.fw !== 'cloud-0.3' && rh.firmwareVersion !== 'cloud-0.3') {
       sweep.starting = false;
-      this.setClinicalRailStatus('Update the ESP8266 to firmware cloud-0.2 before starting a continuous sweep.', 'error');
+      this.setClinicalRailStatus('Update the ESP8266 to firmware cloud-0.3 before starting a continuous sweep.', 'error');
       return;
     }
     if (rh.transport === 'cloud' && (!rh.armed || rh.stopLatched)) {

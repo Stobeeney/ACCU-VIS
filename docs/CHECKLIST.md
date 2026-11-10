@@ -10,7 +10,7 @@ Last reviewed: 2026-11-08. The calibrated 40–20 cm range is user-confirmed. Fi
 - The **camera is stationary** and tracks the eyes. The motor-driven carriage carries the fixation target. The rail UI offers 20, 4 and 2 cm endpoints; the selected endpoint sets the approach target, while firmware permits a software floor of 2 cm. Only 40–20 cm is user-confirmed; physical travel below 20 cm remains unverified. Rail distance must not be used to scale camera geometry.
 - The website always runs a continuous sweep to the selected 20, 4 or 2 cm endpoint. Eye samples are binned using the latest rail telemetry and estimated position; continuous position accuracy still needs physical validation.
 - Rail position is **open-loop** (no limit switch yet). 40 cm = parked home. `1 cm = 800 microsteps` (200 steps x 16 microsteps / 4 cm per rev, from the measured ~40 mm per revolution; earlier assumed 8 mm).
-- Speed ceiling in firmware: `RAIL_MAX_SPEED_CM_S = 0.75` (600 steps/s). The app's 0.8 / 1.5 / 2.5 cm/s pills are clamped to this.
+- Speed presets in the UI and firmware: 0.50, 0.75 and 2.0 cm/s; firmware ceiling is `RAIL_MAX_SPEED_CM_S = 2.0` (about 1600 steps/s at the calibrated ratio). The 2.0 cm/s setting is not physically verified under the phone payload; bench-test before using it near a patient.
 
 ## 1. SAFETY GATE: nothing touches a person until all of this is ticked
 
@@ -23,6 +23,7 @@ Owner: Optimus (with Verity sign-off)
 - [ ] Physical e-stop that cuts motor power (VMOT), independent of the ESP8266
 - [ ] Firmware watchdog: if no request from the app for ~2 s while moving, stop (browser crash / WiFi drop)
 - [ ] Speed limit near the face (zone-based cap in firmware, not only in the app)
+- [ ] Verify 0.50, 0.75 and 2.0 cm/s against a timed ruler test under the mounted phone payload; keep 2.0 disabled for patient use until confirmed
 - [ ] Defined offset between the carriage's distance datum, the red target point and the corneal reference plane
 - [ ] Standalone mode only used with the carriage verified at 40 cm before power-up (add a label on the rail)
 - [ ] Dry run with a dummy head / foam block, no person, before any volunteer
@@ -86,7 +87,6 @@ Done:
 
 Pending:
 - [ ] Run the continuous flow against the real board; verify position estimates and auto-stop distance against physical measurements
-- [ ] Relabel or disable the 1.5 / 2.5 cm/s pills while the ceiling is 0.75 cm/s (they currently all run at 0.75)
 - [ ] Extract rail code into its own module (`rail-client.js`) so it can be unit-tested with a mock
 - [ ] Heartbeat to the firmware while moving (pairs with the firmware watchdog)
 - [ ] Clear UI states: not connected / not homed / moving / stopped by limit / e-stop

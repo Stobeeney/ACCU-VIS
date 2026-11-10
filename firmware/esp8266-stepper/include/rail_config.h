@@ -81,15 +81,12 @@
 // flip this (true <-> false) and re-upload.
 #define DIR_INVERT false
 
-// Hard speed ceiling (RAIL_MAX_SPEED_CM_S below; 600 microsteps/s at 40mm/rev).
-// The web app's speed pills (0.8 / 1.5 / 2.5 cm/s) are CLAMPED to this, and
-// /move and /jog report the speed actually applied. Raise it only after
-// bench-testing: stepping is done in software on the ESP8266, and above a
-// few kHz (or with the motor current/supply too low) steps get lost, which
-// breaks the open-loop position.
+// Hard speed ceiling for the web controls. At the calibrated 40mm/rev and
+// 1/16 microstepping, 2.0cm/s is about 1600 steps/s. Verify the loaded rail
+// on a bench before using the fastest option near a patient: this is open-loop
+// motion and lost steps would invalidate the reported distance.
 // Expressed in cm/s so they stay correct if the pitch changes again.
-// 0.75 cm/s ceiling (was 3000 st/s, which is 3.75 cm/s real at 40mm/rev!).
-#define RAIL_MAX_SPEED_CM_S 0.75
+#define RAIL_MAX_SPEED_CM_S 2.0
 #define RAIL_ACCEL_CM_S2    2.0   // ~1600 st/s^2 here, same motor load as the tested 1500
 #define STEPPER_MAX_SPEED (RAIL_MAX_SPEED_CM_S * MICROSTEPS_PER_CM)  // microsteps/sec
 #define STEPPER_ACCEL     (RAIL_ACCEL_CM_S2 * MICROSTEPS_PER_CM)     // microsteps/sec^2
@@ -160,7 +157,7 @@
 #define CLOUD_MIN_POLL_MS         250
 #define CLOUD_MAX_POLL_MS       60000
 
-#define FW_VERSION "cloud-0.2"
+#define FW_VERSION "cloud-0.3"
 
 // 1 = at boot, run the HTTP parser's built-in checks and print PASS/FAIL on the serial monitor.
 #define RAIL_HTTP_SELFTEST 1

@@ -841,9 +841,9 @@
 
                 <div class="stepper-speed-group">
                   <span class="speed-label">Approach Speed:</span>
-                  <button class="speed-pill" id="speed-slow" onclick="app.setStepperSpeed(0.25)">0.25 cm/s</button>
-                  <button class="speed-pill active" id="speed-norm" onclick="app.setStepperSpeed(0.5)">0.50 cm/s</button>
-                  <button class="speed-pill" id="speed-fast" onclick="app.setStepperSpeed(0.75)">0.75 cm/s</button>
+                  <button class="speed-pill" id="speed-slow" onclick="app.setStepperSpeed(0.5)">0.50 cm/s</button>
+                  <button class="speed-pill active" id="speed-norm" onclick="app.setStepperSpeed(0.75)">0.75 cm/s</button>
+                  <button class="speed-pill" id="speed-fast" onclick="app.setStepperSpeed(2.0)">2.0 cm/s</button>
                 </div>
 
                 <label class="auto-stop-label">
@@ -966,7 +966,7 @@
                 <div class="clinical-rail-fields">
                   <label>Closer limit (cm)<input type="number" data-sweep-near value="20" min="2" max="39.5" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
                   <label>Reverse at (cm)<input type="number" data-sweep-far value="40" min="2.5" max="40" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
-                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.25">Slow - 0.25 cm/s</option><option value="0.5" selected>Medium - 0.50 cm/s</option><option value="0.75">Fast - 0.75 cm/s</option></select></label>
+                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.5">Slow - 0.50 cm/s</option><option value="0.75" selected>Medium - 0.75 cm/s</option><option value="2.0">Fast - 2.0 cm/s</option></select></label>
                 </div>
                 <div class="clinical-rail-link-row">
                   <label>Rail connection<select data-clinical-rail-transport onchange="app.setRailTransport(this.value)"><option value="cloud">Cloud relay</option><option value="local">Direct Wi-Fi</option></select></label>
@@ -1061,7 +1061,7 @@
                 <div class="clinical-rail-fields">
                   <label>Closer limit (cm)<input type="number" data-sweep-near value="20" min="2" max="39.5" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
                   <label>Reverse at (cm)<input type="number" data-sweep-far value="40" min="2.5" max="40" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
-                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.25">Slow - 0.25 cm/s</option><option value="0.5" selected>Medium - 0.50 cm/s</option><option value="0.75">Fast - 0.75 cm/s</option></select></label>
+                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.5">Slow - 0.50 cm/s</option><option value="0.75" selected>Medium - 0.75 cm/s</option><option value="2.0">Fast - 2.0 cm/s</option></select></label>
                 </div>
                 <div class="clinical-rail-link-row">
                   <label>Rail connection<select data-clinical-rail-transport onchange="app.setRailTransport(this.value)"><option value="cloud">Cloud relay</option><option value="local">Direct Wi-Fi</option></select></label>
