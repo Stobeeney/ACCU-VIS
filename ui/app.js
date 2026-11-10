@@ -38,6 +38,7 @@ class AccuVisApp {
 
     // Vision Test State Engine
     this.testState = { active: false, selectedLine: null, lastResult: null };
+    this.testReturnView = null;
 
     // Dot-to-Eye Automated Distance Measurement State (Linear Stepper Rail)
     this.dotState = {
@@ -181,6 +182,12 @@ class AccuVisApp {
   // =========================================================================
 
   switchView(viewName) {
+    const previousView = document.querySelector('.app-view.active')?.id.replace('view-', '');
+    const resultViews = ['exam', 'jaeger', 'color-vision'];
+    if (resultViews.includes(viewName) && !resultViews.includes(previousView)) {
+      this.testReturnView = previousView || 'products';
+    }
+
     // Logged-out users may only ever see the login/auth view
     if (!this.currentUser && viewName !== 'login') {
       viewName = 'login';
@@ -234,6 +241,12 @@ class AccuVisApp {
       this.disconnectPhoneCamera();
       this.stopRailHealthPoll();
     }
+  }
+
+  returnToTestOrigin() {
+    const destination = this.testReturnView || 'products';
+    this.testReturnView = null;
+    this.switchView(destination);
   }
 
   // =========================================================================
@@ -328,36 +341,26 @@ class AccuVisApp {
     listEl.innerHTML = patients.map((p, index) => {
       const dbIndex = (this.dbPatients || []).indexOf(p);
       const initials = p.full_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase();
-      const avatarHtml = `<div class="patient-card-avatar" style="width:38px; height:38px; font-size:13px;">${initials}</div>`;
+      const avatarHtml = `<span class="patient-card-avatar" style="width:38px; height:38px; font-size:13px;">${initials}</span>`;
 
       const patientLogs = (this.dbLogs || []).filter(l => l.mrn === p.mrn);
       const latestLog = patientLogs[0];
       const latestResultHtml = latestLog
-        ? `<div style="font-size:11px; color:var(--primary-maroon); margin-top:2px; font-weight:600;">Latest: ${this.escapeHtml(latestLog.test_type || 'NPC')} ${this.escapeHtml(latestLog.distance_cm ?? '—')}cm &mdash; ${this.escapeHtml(latestLog.verdict || '—')}</div>`
-        : `<div style="font-size:11px; color:var(--text-muted); margin-top:2px;">No measurement results yet</div>`;
-      const detailsHtml = patientLogs.length
-        ? patientLogs.map(log => `<li><strong>${this.escapeHtml(log.test_type || 'NPC')} · ${this.escapeHtml(log.eye || '—')}</strong><span>${this.escapeHtml(log.distance_cm ?? '—')} cm · ${this.escapeHtml(log.verdict || 'No verdict')}</span><small>${this.escapeHtml(log.created_at || 'Date unavailable')}</small></li>`).join('')
-        : '<li class="patient-no-results">No saved measurement results for this patient.</li>';
-
+        ? `<span class="patient-card-latest">Latest: ${this.escapeHtml(latestLog.test_type || 'NPC')} ${this.escapeHtml(latestLog.distance_cm ?? '—')}cm &mdash; ${this.escapeHtml(latestLog.verdict || '—')}</span>`
+        : `<span class="patient-card-latest is-empty">No measurement results yet</span>`;
       return `
         <article class="patient-record-card">
         <div class="patient-desktop-card" style="margin-bottom:0;">
-          ${avatarHtml}
-          <div class="patient-card-info">
-            <h3 class="patient-card-name">${this.escapeHtml(p.full_name)} <small style="font-weight:normal; opacity:0.75; font-family:var(--font-mono); font-size:11px;">(${this.escapeHtml(p.mrn)})</small></h3>
-            <div class="patient-card-demographics">Age: ${this.escapeHtml(p.age || '—')} &nbsp;&bull;&nbsp; Gender: ${this.escapeHtml(p.gender || '—')} &nbsp;&bull;&nbsp; Target: ${this.escapeHtml(p.eye_preference || 'OD')}</div>
-            ${latestResultHtml}
-          </div>
+          <button type="button" class="patient-card-open" onclick="app.openPatientDetailsByIndex(${dbIndex})" aria-label="View details and ${patientLogs.length} results for ${this.escapeHtml(p.full_name)}">
+            ${avatarHtml}
+            <span class="patient-card-info">
+              <span class="patient-card-name">${this.escapeHtml(p.full_name)} <small style="font-weight:normal; opacity:0.75; font-family:var(--font-mono); font-size:11px;">(${this.escapeHtml(p.mrn)})</small></span>
+              <span class="patient-card-demographics">Age: ${this.escapeHtml(p.age || '—')} &nbsp;&bull;&nbsp; Gender: ${this.escapeHtml(p.gender || '—')} &nbsp;&bull;&nbsp; Target: ${this.escapeHtml(p.eye_preference || 'OD')}</span>
+              ${latestResultHtml}
+            </span>
+          </button>
           <button class="btn-select-patient" onclick="app.selectRecentPatientByIndex(${dbIndex})" title="Load ${this.escapeHtml(p.full_name)} for testing" aria-label="Load patient for testing">&rarr;</button>
         </div>
-        <details class="patient-record-details">
-          <summary>Patient details and ${patientLogs.length} result${patientLogs.length === 1 ? '' : 's'}</summary>
-          <div class="patient-details-content">
-            <dl><div><dt>Patient</dt><dd>${this.escapeHtml(p.full_name)}</dd></div><div><dt>MRN</dt><dd>${this.escapeHtml(p.mrn)}</dd></div><div><dt>Age</dt><dd>${this.escapeHtml(p.age || '—')}</dd></div><div><dt>Gender</dt><dd>${this.escapeHtml(p.gender || '—')}</dd></div><div><dt>Preferred eye</dt><dd>${this.escapeHtml(p.eye_preference || 'OD')}</dd></div><div><dt>Notes</dt><dd>${this.escapeHtml(p.notes || '—')}</dd></div></dl>
-            <h4>Measurement history</h4><ul>${detailsHtml}</ul>
-            <button class="btn-outline-maroon patient-download-btn" onclick="app.exportPatientPDFByIndex(${dbIndex})">Download patient details and results (PDF)</button>
-          </div>
-        </details>
         </article>
       `;
     }).join('');
@@ -369,7 +372,45 @@ class AccuVisApp {
 
   selectRecentPatientByIndex(index) {
     const patient = (this.dbPatients || [])[index];
-    if (patient) this.selectRecentPatient(patient.mrn);
+    if (patient) {
+      this.closePatientDetails();
+      this.selectRecentPatient(patient.mrn);
+    }
+  }
+
+  openPatientDetailsByIndex(index) {
+    const patient = (this.dbPatients || [])[index];
+    const dialog = document.getElementById('patient-details-dialog');
+    const content = document.getElementById('patient-details-dialog-content');
+    if (!patient || !dialog || !content) return;
+
+    const logs = (this.dbLogs || []).filter(log => log.mrn === patient.mrn);
+    const resultItems = logs.length
+      ? logs.map(log => `<li><strong>${this.escapeHtml(log.test_type || 'Clinical test')} · ${this.escapeHtml(log.eye || '—')}</strong><span>${this.escapeHtml(log.distance_cm ?? '—')} cm · ${this.escapeHtml(log.verdict || 'No verdict')}</span><small>${this.escapeHtml(log.created_at || 'Date unavailable')}</small></li>`).join('')
+      : '<li class="patient-no-results">No saved measurement results for this patient.</li>';
+
+    document.getElementById('patient-details-dialog-title').textContent = patient.full_name || 'Patient details';
+    content.innerHTML = `
+      <dl>
+        <div><dt>Patient</dt><dd>${this.escapeHtml(patient.full_name)}</dd></div>
+        <div><dt>MRN</dt><dd>${this.escapeHtml(patient.mrn)}</dd></div>
+        <div><dt>Age</dt><dd>${this.escapeHtml(patient.age || '—')}</dd></div>
+        <div><dt>Gender</dt><dd>${this.escapeHtml(patient.gender || '—')}</dd></div>
+        <div><dt>Preferred eye</dt><dd>${this.escapeHtml(patient.eye_preference || 'OD')}</dd></div>
+        <div><dt>Notes</dt><dd>${this.escapeHtml(patient.notes || '—')}</dd></div>
+      </dl>
+      <h4>Measurement history (${logs.length})</h4>
+      <ul>${resultItems}</ul>
+    `;
+    document.getElementById('patient-details-download').onclick = () => this.exportPatientPDFByIndex(index);
+    document.getElementById('patient-details-use').onclick = () => this.selectRecentPatientByIndex(index);
+    dialog.showModal();
+    document.getElementById('patient-details-close').focus();
+  }
+
+  closePatientDetails() {
+    const dialog = document.getElementById('patient-details-dialog');
+    if (dialog?.open) dialog.close();
   }
 
   exportPatientPDFByIndex(index) {
@@ -868,7 +909,7 @@ class AccuVisApp {
     this.closeExamResultModal();
     await this.loadDatabaseData();
 
-    this.switchView('intake');
+    this.returnToTestOrigin();
     this.showNotification("Near VA Result Saved", `${result.finalTier} logged for ${this.currentPatient.name} in database.`);
   }
 
@@ -950,7 +991,7 @@ class AccuVisApp {
     this.saveRecords();
 
     await this.loadDatabaseData();
-    this.switchView('intake');
+    this.returnToTestOrigin();
     this.showNotification("Jaeger's Chart Saved", `${level} logged for ${this.currentPatient.name} in database.`);
   }
 
@@ -1143,7 +1184,7 @@ class AccuVisApp {
     this.saveRecords();
 
     await this.loadDatabaseData();
-    this.switchView('intake');
+    this.returnToTestOrigin();
     this.showNotification("Color Vision Result Saved", `${verdict} logged for ${this.currentPatient.name} in database.`);
   }
 

@@ -1190,6 +1190,7 @@
           <div class="database-table-card">
             <div class="table-search-bar">
               <input type="text" placeholder="Filter records by patient name or MRN..." oninput="app.filterPatients(this.value)" class="form-pill-input">
+              <p class="patient-list-hint">Click a patient card to view their details and results. Use the arrow to load them for testing.</p>
             </div>
 
             <div class="recent-patients-list" id="database-records-list">
@@ -1253,6 +1254,23 @@
       </main>
     </div>
   </div>
+
+  <!-- PATIENT DETAILS AND MEASUREMENT HISTORY -->
+  <dialog id="patient-details-dialog" class="patient-details-dialog" aria-labelledby="patient-details-dialog-title" onclick="if (event.target === this) app.closePatientDetails()">
+    <div class="patient-details-dialog-header">
+      <div>
+        <h2 id="patient-details-dialog-title">Patient details</h2>
+        <p>Patient profile and saved measurement results</p>
+      </div>
+      <button type="button" class="btn-close-circle" id="patient-details-close" onclick="app.closePatientDetails()" aria-label="Close patient details">&times;</button>
+    </div>
+    <div id="patient-details-dialog-content" class="patient-details-dialog-content patient-details-content"></div>
+    <div class="patient-details-dialog-actions">
+      <button type="button" class="btn-outline-maroon patient-download-btn" id="patient-details-download">Download results PDF</button>
+      <button type="button" class="btn-outline-maroon" onclick="app.closePatientDetails()">Close</button>
+      <button type="button" class="btn-maroon-pill" id="patient-details-use">Load patient for testing</button>
+    </div>
+  </dialog>
 
   <!-- MEASUREMENT RESULT MODAL -->
   <div id="modal-dot-result" class="modal-backdrop hidden" onclick="app.closeDotResultModal(event)">
