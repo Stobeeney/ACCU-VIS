@@ -160,7 +160,7 @@
 #define CLOUD_MIN_POLL_MS         250
 #define CLOUD_MAX_POLL_MS       60000
 
-#define FW_VERSION "cloud-0.1"
+#define FW_VERSION "cloud-0.2"
 
 // 1 = at boot, run the HTTP parser's built-in checks and print PASS/FAIL on the serial monitor.
 #define RAIL_HTTP_SELFTEST 1

@@ -182,6 +182,7 @@ void execCommand(uint32_t seq, const char *type, JsonObjectConst p) {
     pr.fastCmS = p["fast_cm_s"] | 0.75f;
     pr.slowCmS = p["slow_cm_s"] | 0.5f;
     pr.dwellMs = p["dwell_ms"] | 2000;
+    pr.continuousSweep = p["continuous_sweep"] | false;
     if (!profileStart(pr)) { queueAck(seq, "rejected:profile"); return; }
     railClearStopReason();
     queueAck(seq, "ok");

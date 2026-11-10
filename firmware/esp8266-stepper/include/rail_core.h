@@ -19,6 +19,7 @@ struct Profile {
   float fastCmS;
   float slowCmS;
   uint32_t dwellMs;  // pause at every stop (the tracker reads the eye here)
+  bool continuousSweep; // alternate continuously between targetCm and fastEndCm
 };
 
 bool profileStart(const Profile &p);        // false if rejected (bad numbers)

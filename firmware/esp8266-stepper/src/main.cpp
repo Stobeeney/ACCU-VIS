@@ -113,7 +113,9 @@ void handleStatus() {
   json += "\"connected_devices\":" + String(WiFi.softAPgetStationNum()) + ",";
   json += "\"min_cm\":" + String(RAIL_MIN_CM, 2) + ",\"max_cm\":" + String(RAIL_MAX_CM, 2) + ",";
   json += "\"calibrated\":" + String(calibrated ? "true" : "false") + ",";
+  json += "\"fw\":\"" FW_VERSION "\",";
   json += "\"distance_cm\":" + String(distanceCm, 2) + ",";
+  json += "\"profile_state\":\"" + String(profileStateName()) + "\",";
   json += "\"moving\":" + String(stepper.isRunning() ? "true" : "false");
   json += "}";
   sendJson(200, json);
@@ -127,6 +129,7 @@ void handleCalibrate() {
 
 void handleHome() {
   if (!calibrated) { sendError(409, "Not calibrated yet -- call /calibrate first"); return; }
+  profileAbort();
   applySpeedCmPerSec(0);
   stepper.moveTo(0);
   sendOk("\"target_cm\":" + String(RAIL_HOME_CM, 2));
@@ -153,8 +156,28 @@ void handleJog() {
 }
 
 void handleStop() {
-  stepper.stop(); // decelerates to a halt and holds there
+  railHardStop("operator stop");
   sendOk();
+}
+
+void handleSweep() {
+  if (!calibrated) { sendError(409, "Not calibrated yet -- call /calibrate first"); return; }
+  if (profileActive() || stepper.isRunning()) { sendError(409, "Rail is moving -- /stop first"); return; }
+  if (!server.hasArg("near_cm") || !server.hasArg("far_cm") || !server.hasArg("speed_cm_s")) {
+    sendError(400, "near_cm, far_cm, and speed_cm_s are required");
+    return;
+  }
+  Profile p;
+  p.targetCm = server.arg("near_cm").toFloat();
+  p.fastEndCm = server.arg("far_cm").toFloat();
+  p.stepCm = 0.5f;
+  p.fastCmS = server.arg("speed_cm_s").toFloat();
+  p.slowCmS = p.fastCmS;
+  p.dwellMs = 2000;
+  p.continuousSweep = true;
+  if (!profileStart(p)) { sendError(400, "Sweep limits or speed are invalid"); return; }
+  sendOk("\"near_cm\":" + String(p.targetCm, 1) + ",\"far_cm\":" + String(p.fastEndCm, 1) +
+         ",\"speed_cm_s\":" + String(applySpeedCmPerSec(p.fastCmS), 2));
 }
 
 void handleTest() {
@@ -293,7 +316,7 @@ void startAccessPoint() {
 // each stop (the phone tracks the eye while the carriage stands still), then back
 // home. Non-blocking: profileTick() runs from loop().
 
-enum ProfileState : uint8_t { PS_IDLE, PS_FAST, PS_STEP, PS_DWELL, PS_RETURN, PS_HELD };
+enum ProfileState : uint8_t { PS_IDLE, PS_FAST, PS_STEP, PS_DWELL, PS_RETURN, PS_SWEEP, PS_HELD };
 
 static Profile prof;
 static ProfileState profState = PS_IDLE;
@@ -302,6 +325,7 @@ static unsigned long heldAt = 0;
 static unsigned long profSince = 0;
 static float profCm = RAIL_HOME_CM;
 static bool profDone = false;
+static bool sweepTowardNear = true;
 static char stopReasonBuf[28] = "";
 static bool stopping = false;
 
@@ -311,6 +335,7 @@ const char *profileStateName() {
     case PS_STEP:   return "STEP";
     case PS_DWELL:  return "DWELL";
     case PS_RETURN: return "RETURN";
+    case PS_SWEEP:  return "SWEEP";
     case PS_HELD:   return "HELD";
     default:        return "IDLE";
   }
@@ -332,10 +357,23 @@ bool profileStart(const Profile &p) {
   if (!(p.stepCm >= 0.1f && p.stepCm <= 5.0f)) return false;
   if (!(p.fastCmS > 0.0f && p.slowCmS > 0.0f)) return false;
   if (p.dwellMs < 200 || p.dwellMs > 10000) return false;
+  if (p.continuousSweep && p.fastEndCm - p.targetCm < 0.5f) return false;
 
   prof = p;
-  profCm = p.fastEndCm;
   profDone = false;
+  if (p.continuousSweep) {
+    sweepTowardNear = microstepsToCm(stepper.currentPosition()) > p.targetCm;
+    const float firstTarget = sweepTowardNear ? p.targetCm : p.fastEndCm;
+    const float sweepSpeed = applySpeedCmPerSec(p.fastCmS);
+    stepper.moveTo(cmToMicrosteps(firstTarget));
+    profState = PS_SWEEP;
+    profSince = millis();
+    Serial.printf("Continuous sweep between %.1f and %.1f cm at %.2f cm/s\n",
+                  p.targetCm, p.fastEndCm, sweepSpeed);
+    return true;
+  }
+
+  profCm = p.fastEndCm;
   float speed = applySpeedCmPerSec(p.fastCmS);
   stepper.moveTo(cmToMicrosteps(p.fastEndCm));
   profState = PS_FAST;
@@ -387,6 +425,10 @@ bool profileResume() {
     case PS_RETURN:
       applySpeedCmPerSec(0);
       stepper.moveTo(0);
+      break;
+    case PS_SWEEP:
+      applySpeedCmPerSec(prof.fastCmS);
+      stepper.moveTo(cmToMicrosteps(sweepTowardNear ? prof.targetCm : prof.fastEndCm));
       break;
     default:
       profState = PS_IDLE;
@@ -440,6 +482,12 @@ void profileTick() {
         Serial.println("Profile done.");
       }
       break;
+    case PS_SWEEP:
+      if (!stepper.isRunning()) {
+        sweepTowardNear = !sweepTowardNear;
+        stepper.moveTo(cmToMicrosteps(sweepTowardNear ? prof.targetCm : prof.fastEndCm));
+      }
+      break;
   }
 }
 
@@ -452,6 +500,7 @@ void standaloneTick() {
   if (!saStarted && millis() - saBootMs >= STANDALONE_START_DELAY_MS) {
     Profile p = {(float)STANDALONE_SLOW_ZONE_START_CM, (float)STANDALONE_TARGET_CM, (float)STANDALONE_SLOW_STEP_CM,
                  (float)STANDALONE_FAST_CM_S, (float)STANDALONE_SLOW_CM_S, (uint32_t)STANDALONE_DWELL_MS};
+    p.continuousSweep = false;
     if (!profileStart(p)) Serial.println("Standalone profile rejected: check the values in rail_config.h");
     saStarted = true;
   }
@@ -553,6 +602,7 @@ void setup() {
   server.on("/calibrate", HTTP_POST, handleCalibrate);
   server.on("/home", HTTP_POST, handleHome);
   server.on("/move", HTTP_POST, handleMove);
+  server.on("/sweep", HTTP_POST, handleSweep);
   server.on("/jog", HTTP_POST, handleJog);
   server.on("/stop", HTTP_POST, handleStop);
   server.on("/test", HTTP_POST, handleTest);

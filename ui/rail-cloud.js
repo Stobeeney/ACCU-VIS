@@ -134,6 +134,7 @@ class AccuVisRailCloud {
       profile_state: st.profile_state || 'IDLE',
       mode: st.mode || 'idle',
       stop_reason: st.stop_reason || '',
+      fw: st.fw || null,
       age_s: s.ageS,
       rssi: st.rssi
     };

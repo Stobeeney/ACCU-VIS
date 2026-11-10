@@ -320,6 +320,9 @@ def _validate_params(ctype, params):
             out["speed_cm_s"] = _num(params["speed_cm_s"], 0.05, 3.0, "speed_cm_s")
         return out
     if ctype == "start_profile":
+        continuous_sweep = params.get("continuous_sweep", False)
+        if not isinstance(continuous_sweep, bool):
+            raise ValueError("continuous_sweep must be a boolean.")
         out = {
             "fast_end_cm": _num(params.get("fast_end_cm"), RAIL_PROFILE_MIN_CM, RAIL_MAX_CM, "fast_end_cm", 30.0),
             "target_cm": _num(params.get("target_cm"), RAIL_PROFILE_MIN_CM, RAIL_MAX_CM, "target_cm", 20.0),
@@ -327,9 +330,12 @@ def _validate_params(ctype, params):
             "dwell_ms": _num(params.get("dwell_ms"), 200, 10000, "dwell_ms", 2000),
             "fast_cm_s": _num(params.get("fast_cm_s"), 0.05, 3.0, "fast_cm_s", 0.75),
             "slow_cm_s": _num(params.get("slow_cm_s"), 0.05, 3.0, "slow_cm_s", 0.5),
+            "continuous_sweep": continuous_sweep,
         }
         if out["target_cm"] > out["fast_end_cm"]:
             raise ValueError("target_cm must not be farther than fast_end_cm.")
+        if continuous_sweep and out["fast_end_cm"] - out["target_cm"] < 0.5:
+            raise ValueError("Continuous sweep endpoints must be at least 0.5 cm apart.")
         return out
     raise ValueError("Unknown command type.")
 

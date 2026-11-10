@@ -92,8 +92,10 @@ class AccuVisApp {
       authError: false,
       lastError: "",
       ageS: null,
+      firmwareVersion: null,
       minCm: DOT_RAIL_MIN_CM,
       lastDistanceCm: null,
+      moving: false,
       profileState: "IDLE",
       stopReason: "",
       speedCeilingCmS: 0.75,   // the firmware clamps every speed to this
@@ -101,6 +103,14 @@ class AccuVisApp {
       healthTimer: null,
       healthBoostUntil: 0,
       pollTimer: null
+    };
+    this.clinicalSweep = {
+      active: false,
+      starting: false,
+      view: null,
+      generation: 0,
+      statusMessage: "Enable the rail to control phone distance.",
+      statusTone: ""
     };
     try {
       const prefs = JSON.parse(localStorage.getItem("accuvis_rail_prefs") || "{}");
@@ -189,6 +199,11 @@ class AccuVisApp {
 
   switchView(viewName) {
     const previousView = document.querySelector('.app-view.active')?.id.replace('view-', '');
+    if ((this.clinicalSweep?.active || this.clinicalSweep?.starting ||
+        (this.railHardware?.enabled && this.railHardware.profileState && this.railHardware.profileState !== 'IDLE')) &&
+        viewName !== this.clinicalSweep.view) {
+      this.stopClinicalRailSweep({ quiet: true });
+    }
     if (this.presentationModeView && this.presentationModeView !== viewName) {
       this.exitClinicalPresentation();
     }
@@ -827,6 +842,7 @@ class AccuVisApp {
 
   startInstantTest() {
     this.testState.active = true;
+    if (this.railHardware.enabled) this.railApiCall('/status');
     this.testState.selectedLine = null;
     this.testState.lastResult = null;
 
@@ -870,17 +886,19 @@ class AccuVisApp {
     if (recordButton) recordButton.disabled = true;
   }
 
-  completeSnellenTest() {
+  async completeSnellenTest() {
     const selectedLine = this.testState.selectedLine;
     if (!selectedLine) {
       this.showNotification('Select a chart line', 'Choose the smallest line the patient read correctly before recording.');
       return;
     }
+    const distanceCm = await this.captureClinicalTestDistance();
+    if (distanceCm === null) return;
 
     const denominator = Number(selectedLine.split('/')[1]);
     const logmar = Math.log10(denominator / 20).toFixed(2);
     this.testState.active = false;
-    this.testState.lastResult = { finalTier: selectedLine, selectedLine, logmar };
+    this.testState.lastResult = { finalTier: selectedLine, selectedLine, logmar, distanceCm };
 
     const snellenEl = document.getElementById('res-exam-snellen');
     if (snellenEl) snellenEl.textContent = selectedLine;
@@ -891,13 +909,13 @@ class AccuVisApp {
     const badgeEl = document.getElementById('res-exam-verdict-badge');
     const noteEl = document.getElementById('res-exam-clinical-note');
     if (badgeEl) { badgeEl.className = 'status-badge-neutral'; badgeEl.textContent = 'Operator-recorded Snellen result'; }
-    if (noteEl) noteEl.textContent = `The operator marked ${selectedLine} as the smallest line read correctly. Confirm chart size and viewing distance before clinical interpretation.`;
+    if (noteEl) noteEl.textContent = `The operator marked ${selectedLine} as the smallest line read correctly at a ${distanceCm} cm phone-to-eye distance. Confirm chart size and viewing distance before clinical interpretation.`;
 
     const resEyeEl = document.getElementById('res-exam-eye');
     if (resEyeEl) resEyeEl.textContent = this.config.eye;
 
     const resDistEl = document.getElementById('res-exam-distance');
-    if (resDistEl) resDistEl.textContent = `${this.fixture.linearDistanceCm}cm`;
+    if (resDistEl) resDistEl.textContent = `${distanceCm} cm`;
 
     const resAccEl = document.getElementById('res-exam-accuracy');
     if (resAccEl) resAccEl.textContent = selectedLine;
@@ -928,11 +946,11 @@ class AccuVisApp {
       patient_name: this.currentPatient.name,
       test_type: "Near VA",
       eye: this.config.eye,
-      distance_cm: this.fixture.linearDistanceCm,
-      distance_mm: this.fixture.linearDistanceCm * 10,
+      distance_cm: result.distanceCm,
+      distance_mm: result.distanceCm * 10,
       verdict: `${result.finalTier} (LogMAR ${result.logmar})`,
       symmetry: null,
-      operator_notes: `Operator-reported smallest Snellen line read correctly: ${result.selectedLine} at ${this.fixture.linearDistanceCm}cm viewing distance. Screen scaling must be calibrated before clinical interpretation.`
+      operator_notes: `Operator-reported smallest Snellen line read correctly: ${result.selectedLine} at ${result.distanceCm}cm phone-to-eye distance. Screen scaling must be calibrated before clinical interpretation.`
     };
 
     try {
@@ -951,7 +969,7 @@ class AccuVisApp {
       patientName: this.currentPatient.name,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       eye: this.config.eye,
-      distance: `${this.fixture.linearDistanceCm}cm`,
+      distance: `${result.distanceCm}cm`,
       acuity: result.finalTier,
       accuracy: result.selectedLine,
       fixation: logPayload.verdict
@@ -973,6 +991,7 @@ class AccuVisApp {
     const eyeEl = document.getElementById('jaeger-active-eye-tag');
     if (eyeEl) eyeEl.textContent = this.config.eye;
     this.setJaegerLevel(this.jaegerState.level);
+    if (this.railHardware.enabled) this.railApiCall('/status');
   }
 
   setJaegerLevel(level) {
@@ -1003,6 +1022,8 @@ class AccuVisApp {
   async saveJaegerRecord() {
     const level = this.jaegerState.level;
     const def = this.jaegerState.levels[level];
+    const distanceCm = await this.captureClinicalTestDistance();
+    if (distanceCm === null) return;
     const verdict = `${level} — Smallest Line Read Comfortably (${def.equiv})`;
     const logId = this.generateLogId();
 
@@ -1012,11 +1033,11 @@ class AccuVisApp {
       patient_name: this.currentPatient.name,
       test_type: "Jaeger's Chart",
       eye: this.config.eye,
-      distance_cm: this.fixture.linearDistanceCm,
-      distance_mm: this.fixture.linearDistanceCm * 10,
+      distance_cm: distanceCm,
+      distance_mm: distanceCm * 10,
       verdict: verdict,
       symmetry: level,
-      operator_notes: `Smallest Jaeger near-reading line read comfortably: ${level} at ${this.fixture.linearDistanceCm}cm.`
+      operator_notes: `Smallest Jaeger near-reading line read comfortably: ${level} at ${distanceCm}cm phone-to-eye distance.`
     };
 
     try {
@@ -1035,7 +1056,7 @@ class AccuVisApp {
       patientName: this.currentPatient.name,
       date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
       eye: this.config.eye,
-      distance: `${this.fixture.linearDistanceCm}cm`,
+      distance: `${distanceCm}cm`,
       acuity: level,
       accuracy: def.equiv,
       fixation: verdict
@@ -1893,7 +1914,13 @@ class AccuVisApp {
       const data = await res.json();
       this.railHardware.connected = true;
       if (typeof data.min_cm === "number") this.railHardware.minCm = data.min_cm;
-      if (typeof data.distance_cm === "number") this.railHardware.lastDistanceCm = data.distance_cm;
+      if (typeof data.distance_cm === "number") {
+        this.railHardware.lastDistanceCm = data.distance_cm;
+        this.updateClinicalRailDistance(data.distance_cm);
+      }
+      if (typeof data.fw === "string") this.railHardware.firmwareVersion = data.fw;
+      if (typeof data.moving === "boolean") this.railHardware.moving = data.moving;
+      if (typeof data.profile_state === "string") this.railHardware.profileState = data.profile_state;
       if (typeof data.calibrated === "boolean") {
         this.railHardware.calibrated = data.calibrated;
       }
@@ -1908,7 +1935,14 @@ class AccuVisApp {
 
   toggleRailHardware(enabled) {
     const rh = this.railHardware;
+    if (!enabled && (this.clinicalSweep.active || this.clinicalSweep.starting || rh.moving ||
+        this.dotState.isApproaching || (rh.profileState && rh.profileState !== 'IDLE'))) {
+      this.setClinicalRailStatus('Stop the rail motion before disabling rail control.', 'error');
+      this.syncClinicalRailControls();
+      return;
+    }
     rh.enabled = enabled;
+    this.syncClinicalRailControls();
     if (enabled) {
       this.railApiCall("/status");
       this.startRailHealthPoll();
@@ -1922,6 +1956,7 @@ class AccuVisApp {
 
   setRailHardwareUrl(url) {
     this.railHardware.baseUrl = url.trim().replace(/\/+$/, "");
+    if (this.railHardware.enabled && this.railHardware.transport === "local") this.railApiCall("/status");
   }
 
   async calibrateRailHardware() {
@@ -1983,6 +2018,7 @@ class AccuVisApp {
     }
     this.updateRailCloudControls();
     this.updateTargetLimitStatus();
+    this.syncClinicalRailControls();
   }
 
   // =========================================================================
@@ -2024,12 +2060,15 @@ class AccuVisApp {
     rh.connected = status.online;
     rh.armed = status.armed;
     rh.stopLatched = status.stopLatched;
+    rh.moving = local.moving;
     rh.calibrated = local.calibrated;
     rh.minCm = local.min_cm;
     rh.ageS = status.ageS;
     rh.profileState = local.profile_state;
     rh.stopReason = local.stop_reason;
+    rh.firmwareVersion = local.fw;
     rh.lastDistanceCm = local.distance_cm;
+    if (Number.isFinite(local.distance_cm)) this.updateClinicalRailDistance(local.distance_cm);
     this.updateRailHardwareStatusUI();
     return local;
   }
@@ -2049,6 +2088,16 @@ class AccuVisApp {
       result = await client.command("home");
     } else if (path === "/move") {
       result = await client.command("move", { distance_cm: Number(params.distance_cm), ...speed });
+    } else if (path === "/sweep") {
+      result = await client.command("start_profile", {
+        fast_end_cm: Number(params.far_cm),
+        target_cm: Number(params.near_cm),
+        step_cm: 0.5,
+        fast_cm_s: Number(params.speed_cm_s),
+        slow_cm_s: Number(params.speed_cm_s),
+        dwell_ms: 2000,
+        continuous_sweep: true
+      });
     } else if (path === "/jog") {
       result = await client.command("jog", { delta_cm: Number(params.delta_cm), ...speed });
     } else {
@@ -2083,11 +2132,16 @@ class AccuVisApp {
   startRailHealthPoll() {
     const rh = this.railHardware;
     this.stopRailHealthPoll();
-    if (!rh.enabled || rh.transport !== "cloud") return;
+    if (!rh.enabled) return;
     const tick = async () => {
-      if (!rh.enabled || rh.transport !== "cloud") return;
-      if (!this.dotState.isApproaching && !document.hidden) await this.railApiCall("/status");
-      rh.healthTimer = setTimeout(tick, rh.healthBoostUntil > Date.now() ? 1500 : 5000);
+      if (!rh.enabled) return;
+      if (!(rh.transport === "cloud" && this.dotState.isApproaching) && !document.hidden) {
+        await this.railApiCall("/status");
+      }
+      const interval = rh.transport === "cloud"
+        ? (rh.healthBoostUntil > Date.now() ? 1500 : 5000)
+        : (this.clinicalSweep.active || this.clinicalSweep.starting ? 800 : 5000);
+      rh.healthTimer = setTimeout(tick, interval);
     };
     rh.healthTimer = setTimeout(tick, 1000);
   }
@@ -2114,6 +2168,7 @@ class AccuVisApp {
     rh.armed = false;
     rh.authError = false;
     rh.lastError = "";
+    rh.firmwareVersion = null;
     this.persistRailPrefs();
     this.stopRailHealthPoll();
     this.syncRailPanelUI();
@@ -2140,7 +2195,7 @@ class AccuVisApp {
     withEl("rail-hardware-url", (el) => el.classList.toggle("rail-hidden", rh.transport === "cloud"));
     withEl("rail-cloud-row", (el) => el.classList.toggle("rail-hidden", rh.transport !== "cloud"));
     this.updateRailHardwareStatusUI();
-    if (rh.enabled && rh.transport === "cloud") this.startRailHealthPoll();
+    if (rh.enabled) this.startRailHealthPoll();
   }
 
   updateRailCloudControls() {
@@ -2177,6 +2232,282 @@ class AccuVisApp {
     const res = await this.railCloud().clearStop();
     if (!res.ok) { this.noteCloudProblem(res); return; }
     await this.railApiCall("/status");
+  }
+
+  syncClinicalRailInputs(source) {
+    const sourcePanel = source?.closest('[data-clinical-rail-controls]');
+    if (!sourcePanel) return;
+    const near = sourcePanel.querySelector('[data-sweep-near]')?.value;
+    const far = sourcePanel.querySelector('[data-sweep-far]')?.value;
+    const speed = sourcePanel.querySelector('[data-sweep-speed]')?.value;
+    document.querySelectorAll('[data-clinical-rail-controls]').forEach((panel) => {
+      if (panel === sourcePanel) return;
+      if (near !== undefined) panel.querySelector('[data-sweep-near]').value = near;
+      if (far !== undefined) panel.querySelector('[data-sweep-far]').value = far;
+      if (speed !== undefined) panel.querySelector('[data-sweep-speed]').value = speed;
+    });
+  }
+
+  syncClinicalRailControls() {
+    const rh = this.railHardware;
+    const sweep = this.clinicalSweep;
+    document.querySelectorAll('[data-clinical-rail-controls]').forEach((panel) => {
+      const nearInput = panel.querySelector('[data-sweep-near]');
+      const farInput = panel.querySelector('[data-sweep-far]');
+      const speedInput = panel.querySelector('[data-sweep-speed]');
+      const enabledInput = panel.querySelector('[data-clinical-rail-enabled]');
+      const transportInput = panel.querySelector('[data-clinical-rail-transport]');
+      const addressInput = panel.querySelector('[data-clinical-rail-url]');
+      const addressWrap = panel.querySelector('[data-clinical-rail-url-wrap]');
+      const armButton = panel.querySelector('[data-clinical-rail-arm]');
+      const clearButton = panel.querySelector('[data-clinical-rail-clear]');
+      const calibrateButton = panel.querySelector('[data-clinical-rail-calibrate]');
+      const startButton = panel.querySelector('[data-clinical-sweep-start]');
+      const stopButton = panel.querySelector('[data-clinical-sweep-stop]');
+      const homeButton = panel.querySelector('[data-clinical-rail-home]');
+      const status = panel.querySelector('[data-clinical-rail-status]');
+
+      if (enabledInput) enabledInput.checked = rh.enabled;
+      if (transportInput) transportInput.value = rh.transport;
+      if (addressInput) addressInput.value = rh.baseUrl;
+      if (addressWrap) addressWrap.classList.toggle('rail-hidden', rh.transport !== 'local');
+      if (armButton) {
+        armButton.classList.toggle('rail-hidden', rh.transport !== 'cloud');
+        armButton.textContent = rh.armed ? 'Disarm rail' : 'Arm rail';
+        armButton.disabled = !rh.enabled || !rh.connected;
+      }
+      if (clearButton) clearButton.classList.toggle('rail-hidden', !(rh.transport === 'cloud' && rh.stopLatched));
+      if (nearInput) nearInput.disabled = sweep.active || sweep.starting;
+      if (farInput) farInput.disabled = sweep.active || sweep.starting;
+      if (speedInput) speedInput.disabled = sweep.active || sweep.starting;
+      if (transportInput) transportInput.disabled = sweep.active || sweep.starting;
+      if (addressInput) addressInput.disabled = sweep.active || sweep.starting;
+
+      const hasNewFirmware = rh.firmwareVersion === 'cloud-0.2';
+      const railProfileActive = Boolean(rh.profileState && rh.profileState !== 'IDLE');
+      const readyForMotion = rh.enabled && rh.connected && rh.calibrated && hasNewFirmware && !rh.moving &&
+        !railProfileActive &&
+        (rh.transport !== 'cloud' || (rh.armed && !rh.stopLatched));
+      if (startButton) startButton.disabled = !readyForMotion || sweep.active || sweep.starting;
+      if (stopButton) stopButton.disabled = !rh.enabled || (!sweep.active && !sweep.starting && !rh.moving && !railProfileActive);
+      if (calibrateButton) calibrateButton.disabled = !rh.enabled || !rh.connected || !hasNewFirmware || sweep.active || sweep.starting ||
+        (rh.transport === 'cloud' && !rh.armed);
+      if (homeButton) homeButton.disabled = !rh.enabled || !rh.connected || !rh.calibrated ||
+        (rh.transport === 'cloud' && !rh.armed);
+
+      if (status) {
+        let message = sweep.statusMessage;
+        let tone = sweep.statusTone;
+        if (sweep.active) {
+          message = `Sweeping ${sweep.nearCm.toFixed(1)}–${sweep.farCm.toFixed(1)} cm at ${sweep.speedCmS.toFixed(2)} cm/s; reversing at both limits. Press STOP to halt.`;
+          tone = 'active';
+        } else if (sweep.starting) {
+          message = 'Sending the continuous sweep command to the rail…';
+          tone = '';
+        } else if (rh.moving || railProfileActive) {
+          message = 'The rail reports an active motion profile. Press STOP before continuing this test.';
+          tone = 'error';
+        } else if (!rh.enabled) {
+          message = 'Enable the rail to control phone distance.';
+          tone = '';
+        } else if (!rh.connected) {
+          message = rh.lastError || 'Rail is offline. Check its Wi-Fi connection.';
+          tone = 'error';
+        } else if (!hasNewFirmware) {
+          message = 'Update the ESP8266 to firmware cloud-0.2 before starting a continuous sweep.';
+          tone = 'error';
+        } else if (!rh.calibrated) {
+          message = 'Place the carriage at its physical 40 cm mark, then calibrate it.';
+          tone = '';
+        } else if (rh.transport === 'cloud' && rh.stopLatched) {
+          message = 'STOP is latched. Clear STOP or reset the carriage to 40 cm before restarting.';
+          tone = 'error';
+        } else if (rh.transport === 'cloud' && !rh.armed) {
+          message = 'Arm the rail before starting a phone distance sweep.';
+          tone = '';
+        } else if (message === 'Enable the rail to control phone distance.') {
+          message = 'Rail ready. Choose the closer and reverse distances, then start the sweep.';
+          tone = '';
+        }
+        status.textContent = message;
+        status.dataset.tone = tone;
+      }
+    });
+  }
+
+  setClinicalRailStatus(message, tone = '') {
+    this.clinicalSweep.statusMessage = message;
+    this.clinicalSweep.statusTone = tone;
+    this.syncClinicalRailControls();
+  }
+
+  updateClinicalRailDistance(distanceCm) {
+    if (!Number.isFinite(distanceCm)) return;
+    const label = `${distanceCm.toFixed(1)} cm`;
+    ['exam-active-dist-tag', 'exam-distance-tag', 'jaeger-active-distance-tag', 'jaeger-distance-heading'].forEach((id) => {
+      const element = document.getElementById(id);
+      if (element) element.textContent = label;
+    });
+  }
+
+  async captureClinicalTestDistance() {
+    if (this.clinicalSweep.active || this.clinicalSweep.starting) {
+      this.showNotification('Stop the phone sweep first', 'Press STOP and wait for the carriage to stop before recording a reading distance.');
+      return null;
+    }
+    if (!this.railHardware.enabled) return this.fixture.linearDistanceCm;
+
+    const status = await this.railApiCall('/status');
+    if (!status?.ok || !status.calibrated || !Number.isFinite(status.distance_cm)) {
+      this.showNotification('Rail distance unavailable', 'Reconnect and calibrate the rail before recording the phone distance.');
+      return null;
+    }
+    if (status.moving || ['SWEEP', 'FAST', 'STEP', 'DWELL', 'RETURN', 'HELD'].includes(status.profile_state)) {
+      this.showNotification('Carriage is still moving', 'Wait until the carriage has stopped, then record the reading again.');
+      return null;
+    }
+    this.updateClinicalRailDistance(status.distance_cm);
+    return Number(status.distance_cm.toFixed(1));
+  }
+
+  async startClinicalRailSweep(viewName) {
+    const sweep = this.clinicalSweep;
+    const panel = document.querySelector(`[data-clinical-rail-controls="${viewName}"]`);
+    if (!panel || sweep.active || sweep.starting) return;
+    const nearCm = Number(panel.querySelector('[data-sweep-near]')?.value);
+    const farCm = Number(panel.querySelector('[data-sweep-far]')?.value);
+    const speedCmS = Number(panel.querySelector('[data-sweep-speed]')?.value);
+    const rh = this.railHardware;
+
+    if (!Number.isFinite(nearCm) || !Number.isFinite(farCm) || !Number.isFinite(speedCmS) ||
+        nearCm < 2 || farCm > DOT_RAIL_HOME_CM || farCm - nearCm < 0.5 ||
+        ![0.25, 0.5, 0.75].includes(speedCmS)) {
+      this.setClinicalRailStatus('Choose a closer limit from 2–39.5 cm and a reverse point at least 0.5 cm farther, up to 40 cm.', 'error');
+      return;
+    }
+    if (!rh.enabled) {
+      this.setClinicalRailStatus('Turn on Use ESP8266 rail before starting movement.', 'error');
+      return;
+    }
+
+    const runId = ++sweep.generation;
+    sweep.starting = true;
+    sweep.view = viewName;
+    sweep.nearCm = nearCm;
+    sweep.farCm = farCm;
+    sweep.speedCmS = speedCmS;
+    this.setClinicalRailStatus('Checking rail connection and safety state…');
+
+    const status = await this.railApiCall('/status');
+    if (runId !== sweep.generation) return;
+    if (!status || !status.ok) {
+      sweep.starting = false;
+      this.setClinicalRailStatus(rh.lastError || 'Rail did not return a current status. No sweep was started.', 'error');
+      return;
+    }
+    this.dotState.railDistanceCm = status.distance_cm;
+    if (!Number.isFinite(status.distance_cm)) {
+      sweep.starting = false;
+      this.setClinicalRailStatus('The rail did not report a valid carriage distance. No sweep was started.', 'error');
+      return;
+    }
+    if (status.fw !== 'cloud-0.2' && rh.firmwareVersion !== 'cloud-0.2') {
+      sweep.starting = false;
+      this.setClinicalRailStatus('Update the ESP8266 to firmware cloud-0.2 before starting a continuous sweep.', 'error');
+      return;
+    }
+    if (rh.transport === 'cloud' && (!rh.armed || rh.stopLatched)) {
+      sweep.starting = false;
+      this.setClinicalRailStatus(rh.stopLatched ? 'Clear the latched STOP or reset the carriage to 40 cm first.' : 'Arm the rail before starting movement.', 'error');
+      return;
+    }
+    const deviceMinCm = Number.isFinite(status.min_cm) ? status.min_cm : rh.minCm;
+    if (nearCm < deviceMinCm) {
+      sweep.starting = false;
+      this.setClinicalRailStatus(`The selected closer limit is below this rail's ${deviceMinCm.toFixed(1)} cm travel limit.`, 'error');
+      return;
+    }
+    if (!status.calibrated) {
+      sweep.starting = false;
+      this.setClinicalRailStatus('Calibrate the rail with the carriage physically at 40 cm before moving.', 'error');
+      return;
+    }
+    if (status.moving || (status.profile_state && status.profile_state !== 'IDLE')) {
+      sweep.starting = false;
+      this.setClinicalRailStatus('The rail is already moving. Stop it or wait for it to finish first.', 'error');
+      return;
+    }
+
+    const result = await this.railApiCall('/sweep', { near_cm: nearCm, far_cm: farCm, speed_cm_s: speedCmS });
+    if (runId !== sweep.generation) return;
+    sweep.starting = false;
+    if (!result || !result.ok) {
+      this.setClinicalRailStatus(result?.error || rh.lastError || 'The rail did not confirm the sweep command.', 'error');
+      return;
+    }
+    sweep.active = true;
+    this.setClinicalRailStatus('');
+  }
+
+  async stopClinicalRailSweep({ quiet = false } = {}) {
+    const sweep = this.clinicalSweep;
+    if (!this.railHardware.enabled) return;
+    const wasRunning = sweep.active || sweep.starting;
+    sweep.generation += 1;
+    sweep.active = false;
+    sweep.starting = false;
+    const result = await this.railApiCall('/stop');
+    if (!quiet) {
+      this.setClinicalRailStatus(result?.ok
+        ? 'STOP sent. The carriage should now remain where it is; Reset to 40 cm to return home.'
+        : 'Could not confirm STOP. Check the rail status and use its physical power cut-off if it keeps moving.', result?.ok ? '' : 'error');
+    } else if (wasRunning) {
+      this.setClinicalRailStatus('Stopped because the operator left this test.', '');
+    }
+  }
+
+  async homeClinicalRail() {
+    const sweep = this.clinicalSweep;
+    if (!this.railHardware.enabled) return;
+    sweep.generation += 1;
+    sweep.active = false;
+    sweep.starting = false;
+    this.setClinicalRailStatus('Sending the return-home command…');
+    const command = await this.railApiCall('/home');
+    if (!command || !command.ok) {
+      this.setClinicalRailStatus(command?.error || this.railHardware.lastError || 'Home command failed. Check rail status.', 'error');
+      return;
+    }
+    const startedAt = Date.now();
+    while (Date.now() - startedAt < 60000) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const status = await this.railApiCall('/status');
+      if (status?.ok && Number.isFinite(status.distance_cm)) {
+        this.dotState.railDistanceCm = status.distance_cm;
+        if (!status.moving && Math.abs(status.distance_cm - DOT_RAIL_HOME_CM) <= 0.3) {
+          this.setClinicalRailStatus('Carriage is home at 40 cm.');
+          return;
+        }
+      }
+    }
+    this.setClinicalRailStatus('The rail has not confirmed 40 cm home yet. Check its position and connection.', 'error');
+  }
+
+  async calibrateClinicalRailAtHome() {
+    const rh = this.railHardware;
+    if (!rh.enabled) return;
+    if (!window.confirm('Place the carriage exactly at its physical 40 cm home mark before calibrating. Continue?')) return;
+    const status = await this.railApiCall('/status');
+    if (!status?.ok || status.moving || (status.profile_state && status.profile_state !== 'IDLE')) {
+      this.setClinicalRailStatus('Cannot calibrate while the rail is offline or moving.', 'error');
+      return;
+    }
+    if (Math.abs(status.distance_cm - DOT_RAIL_HOME_CM) > 0.5) {
+      this.setClinicalRailStatus('The carriage is not at the reported 40 cm position. Use Reset to 40 cm first.', 'error');
+      return;
+    }
+    const result = await this.railApiCall('/calibrate');
+    this.setClinicalRailStatus(result?.ok ? 'Calibrated at the physical 40 cm home mark.' : 'Calibration failed. Check the rail connection and arm state.', result?.ok ? '' : 'error');
   }
 
   // Cloud approach: the firmware runs one continuous sweep to the selected endpoint; the page

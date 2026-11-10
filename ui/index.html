@@ -956,10 +956,35 @@
               <div class="snellen-selected-reading" aria-live="polite"><span>Selected line</span><strong id="snellen-selected-result">Not selected</strong></div>
               <div class="exam-summary-box">
                 <div class="summary-metric"><span class="summary-label">Patient</span><strong class="summary-val" id="exam-patient-summary">—</strong></div>
-                <div class="summary-metric"><span class="summary-label">Distance</span><strong class="summary-val" id="exam-active-dist-tag">40cm</strong></div>
+                <div class="summary-metric"><span class="summary-label">Phone distance</span><strong class="summary-val" id="exam-active-dist-tag">40.0 cm</strong></div>
               </div>
               <button type="button" class="btn-maroon-pill-large snellen-record-btn" id="snellen-record-btn" onclick="app.completeSnellenTest()" disabled>Record result</button>
               <button type="button" class="btn-outline-maroon snellen-clear-btn" onclick="app.clearSnellenSelection()">Clear selected line</button>
+              <section class="clinical-rail-panel" data-clinical-rail-controls="exam" aria-labelledby="nearva-rail-title">
+                <h3 id="nearva-rail-title">Phone distance sweep</h3>
+                <p>Move continuously between the closer distance and the point where the carriage reverses.</p>
+                <div class="clinical-rail-fields">
+                  <label>Closer limit (cm)<input type="number" data-sweep-near value="20" min="2" max="39.5" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
+                  <label>Reverse at (cm)<input type="number" data-sweep-far value="40" min="2.5" max="40" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
+                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.25">Slow - 0.25 cm/s</option><option value="0.5" selected>Medium - 0.50 cm/s</option><option value="0.75">Fast - 0.75 cm/s</option></select></label>
+                </div>
+                <div class="clinical-rail-link-row">
+                  <label>Rail connection<select data-clinical-rail-transport onchange="app.setRailTransport(this.value)"><option value="cloud">Cloud relay</option><option value="local">Direct Wi-Fi</option></select></label>
+                  <label data-clinical-rail-url-wrap class="rail-hidden">Rail address<input type="url" data-clinical-rail-url value="https://192.168.4.1" onchange="app.setRailHardwareUrl(this.value)"></label>
+                </div>
+                <label class="clinical-rail-hardware-toggle"><input type="checkbox" data-clinical-rail-enabled onchange="app.toggleRailHardware(this.checked)"> Use ESP8266 rail</label>
+                <div class="clinical-rail-safety-actions">
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-arm onclick="app.toggleRailArm()">Arm rail</button>
+                  <button type="button" class="btn-outline-maroon rail-hidden" data-clinical-rail-clear onclick="app.clearRailStop()">Clear STOP</button>
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-calibrate onclick="app.calibrateClinicalRailAtHome()">Calibrate at 40 cm</button>
+                </div>
+                <div class="clinical-rail-actions">
+                  <button type="button" class="btn-maroon-pill" data-clinical-sweep-start onclick="app.startClinicalRailSweep('exam')">Start continuous sweep</button>
+                  <button type="button" class="btn-stepper-stop" data-clinical-sweep-stop onclick="app.stopClinicalRailSweep()">STOP</button>
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-home onclick="app.homeClinicalRail()">Reset to 40 cm</button>
+                </div>
+                <p class="clinical-rail-status" data-clinical-rail-status role="status" aria-live="polite">Enable the rail to control phone distance.</p>
+              </section>
             </aside>
             </div>
         </section>
@@ -970,7 +995,7 @@
         <section id="view-jaeger" class="app-view">
           <div class="desktop-view-header">
             <div>
-              <div class="stage-tag-badge">Jaeger's Near Reading Chart &bull; 40cm Standard Fixation</div>
+              <div class="stage-tag-badge">Jaeger's Near Reading Chart &bull; <span id="jaeger-distance-heading">40.0 cm</span> Phone Distance</div>
               <h1 class="desktop-view-title">Jaeger's Chart (J1&ndash;J7 Presbyopia Screening)</h1>
             </div>
             <div class="header-action-group">
@@ -1023,13 +1048,38 @@
                 </div>
                 <div class="summary-metric">
                   <span class="summary-label">Fixation Rail:</span>
-                  <strong class="summary-val">40cm</strong>
+                  <strong class="summary-val" id="jaeger-active-distance-tag">40.0 cm</strong>
                 </div>
               </div>
 
               <button class="btn-maroon-pill-large" style="width:100%; margin-top:16px;" onclick="app.saveJaegerRecord()">
                 <span>Save Record &rarr;</span>
               </button>
+              <section class="clinical-rail-panel" data-clinical-rail-controls="jaeger" aria-labelledby="jaeger-rail-title">
+                <h3 id="jaeger-rail-title">Phone distance sweep</h3>
+                <p>Move continuously between the closer distance and the point where the carriage reverses.</p>
+                <div class="clinical-rail-fields">
+                  <label>Closer limit (cm)<input type="number" data-sweep-near value="20" min="2" max="39.5" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
+                  <label>Reverse at (cm)<input type="number" data-sweep-far value="40" min="2.5" max="40" step="0.5" onchange="app.syncClinicalRailInputs(this)"></label>
+                  <label class="clinical-rail-speed">Speed<select data-sweep-speed onchange="app.syncClinicalRailInputs(this)"><option value="0.25">Slow - 0.25 cm/s</option><option value="0.5" selected>Medium - 0.50 cm/s</option><option value="0.75">Fast - 0.75 cm/s</option></select></label>
+                </div>
+                <div class="clinical-rail-link-row">
+                  <label>Rail connection<select data-clinical-rail-transport onchange="app.setRailTransport(this.value)"><option value="cloud">Cloud relay</option><option value="local">Direct Wi-Fi</option></select></label>
+                  <label data-clinical-rail-url-wrap class="rail-hidden">Rail address<input type="url" data-clinical-rail-url value="https://192.168.4.1" onchange="app.setRailHardwareUrl(this.value)"></label>
+                </div>
+                <label class="clinical-rail-hardware-toggle"><input type="checkbox" data-clinical-rail-enabled onchange="app.toggleRailHardware(this.checked)"> Use ESP8266 rail</label>
+                <div class="clinical-rail-safety-actions">
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-arm onclick="app.toggleRailArm()">Arm rail</button>
+                  <button type="button" class="btn-outline-maroon rail-hidden" data-clinical-rail-clear onclick="app.clearRailStop()">Clear STOP</button>
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-calibrate onclick="app.calibrateClinicalRailAtHome()">Calibrate at 40 cm</button>
+                </div>
+                <div class="clinical-rail-actions">
+                  <button type="button" class="btn-maroon-pill" data-clinical-sweep-start onclick="app.startClinicalRailSweep('jaeger')">Start continuous sweep</button>
+                  <button type="button" class="btn-stepper-stop" data-clinical-sweep-stop onclick="app.stopClinicalRailSweep()">STOP</button>
+                  <button type="button" class="btn-outline-maroon" data-clinical-rail-home onclick="app.homeClinicalRail()">Reset to 40 cm</button>
+                </div>
+                <p class="clinical-rail-status" data-clinical-rail-status role="status" aria-live="polite">Enable the rail to control phone distance.</p>
+              </section>
             </div>
           </div>
         </section>

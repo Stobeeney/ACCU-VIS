@@ -2579,6 +2579,145 @@ html.logged-out #view-login {
   line-height: 1.5;
 }
 
+.clinical-rail-panel {
+  width: 100%;
+  margin-top: 18px;
+  padding: 16px;
+  border: 1px solid var(--card-border);
+  border-radius: var(--radius-lg);
+  background: var(--bg-cream-soft);
+  text-align: left;
+}
+
+.clinical-rail-panel h3 {
+  margin: 0;
+  color: var(--primary-maroon-dark);
+  font-size: 14px;
+  font-weight: 800;
+}
+
+.clinical-rail-panel > p {
+  margin: 5px 0 12px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.45;
+}
+
+.clinical-rail-fields {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+}
+
+.clinical-rail-fields label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.clinical-rail-fields input,
+.clinical-rail-fields select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--card-white);
+  color: var(--primary-maroon-dark);
+  font: inherit;
+  font-size: 12px;
+}
+
+.clinical-rail-fields .clinical-rail-speed {
+  grid-column: 1 / -1;
+}
+
+.clinical-rail-hardware-toggle {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 12px 0 8px;
+  color: var(--primary-maroon-dark);
+  font-size: 12px;
+  font-weight: 700;
+}
+
+.clinical-rail-link-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 9px;
+  margin-top: 9px;
+}
+
+.clinical-rail-link-row label {
+  display: grid;
+  gap: 5px;
+  color: var(--text-muted);
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.clinical-rail-link-row input,
+.clinical-rail-link-row select {
+  width: 100%;
+  min-width: 0;
+  min-height: 38px;
+  padding: 7px 9px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-md);
+  background: var(--card-white);
+  color: var(--primary-maroon-dark);
+  font: inherit;
+  font-size: 11px;
+}
+
+.clinical-rail-hardware-toggle input {
+  accent-color: var(--primary-maroon);
+}
+
+.clinical-rail-safety-actions,
+.clinical-rail-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  margin-top: 8px;
+}
+
+.clinical-rail-panel button {
+  min-height: 38px;
+  padding: 8px 11px;
+  font-size: 11px;
+}
+
+.clinical-rail-actions [data-clinical-sweep-start] {
+  flex: 1 1 100%;
+}
+
+.clinical-rail-actions [data-clinical-sweep-stop] {
+  flex: 1 1 64px;
+}
+
+.clinical-rail-actions [data-clinical-rail-home] {
+  flex: 2 1 120px;
+}
+
+.clinical-rail-status {
+  min-height: 1.4em;
+  margin: 10px 0 0 !important;
+  font-weight: 700;
+}
+
+.clinical-rail-status[data-tone="error"] {
+  color: #a11b1b;
+}
+
+.clinical-rail-status[data-tone="active"] {
+  color: #157a46;
+}
+
 .snellen-result-card {
   position: sticky;
   top: 14px;
