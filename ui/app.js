@@ -39,6 +39,12 @@ class AccuVisApp {
     // Vision Test State Engine
     this.testState = { active: false, selectedLine: null, lastResult: null };
     this.testReturnView = null;
+    this.presentationModeView = null;
+    document.addEventListener('fullscreenchange', () => {
+      if (this.presentationModeView && !document.fullscreenElement) {
+        this.exitClinicalPresentation(false);
+      }
+    });
 
     // Dot-to-Eye Automated Distance Measurement State (Linear Stepper Rail)
     this.dotState = {
@@ -183,6 +189,9 @@ class AccuVisApp {
 
   switchView(viewName) {
     const previousView = document.querySelector('.app-view.active')?.id.replace('view-', '');
+    if (this.presentationModeView && this.presentationModeView !== viewName) {
+      this.exitClinicalPresentation();
+    }
     const resultViews = ['exam', 'jaeger', 'color-vision'];
     if (resultViews.includes(viewName) && !resultViews.includes(previousView)) {
       this.testReturnView = previousView || 'products';
@@ -241,6 +250,49 @@ class AccuVisApp {
       this.disconnectPhoneCamera();
       this.stopRailHealthPoll();
     }
+  }
+
+  async toggleClinicalPresentation(viewName) {
+    if (this.presentationModeView === viewName) {
+      this.exitClinicalPresentation();
+      return;
+    }
+
+    this.presentationModeView = viewName;
+    document.body.classList.add('clinical-presentation-mode');
+    this.updateClinicalPresentationButtons();
+
+    const layout = document.querySelector('.app-layout');
+    if (layout?.requestFullscreen && !document.fullscreenElement) {
+      try {
+        await layout.requestFullscreen();
+      } catch (error) {
+        // The page-level presentation layout remains available if fullscreen is denied.
+      }
+    }
+  }
+
+  exitClinicalPresentation(exitBrowserFullscreen = true) {
+    const shouldExitBrowserFullscreen = exitBrowserFullscreen && Boolean(document.fullscreenElement);
+    this.presentationModeView = null;
+    document.body.classList.remove('clinical-presentation-mode');
+    this.updateClinicalPresentationButtons();
+    if (shouldExitBrowserFullscreen && document.exitFullscreen) {
+      document.exitFullscreen().catch(() => {});
+    }
+  }
+
+  updateClinicalPresentationButtons() {
+    [
+      ['btn-nearva-fullscreen', 'exam'],
+      ['btn-jaeger-fullscreen', 'jaeger']
+    ].forEach(([id, viewName]) => {
+      const button = document.getElementById(id);
+      if (!button) return;
+      const active = this.presentationModeView === viewName;
+      button.textContent = active ? 'Exit Full Screen' : 'Full Screen';
+      button.setAttribute('aria-pressed', String(active));
+    });
   }
 
   returnToTestOrigin() {
@@ -3330,7 +3382,19 @@ class AccuVisApp {
       // Keep chart-row buttons and their native keyboard behavior in the Near VA view.
       const examView = document.getElementById('view-exam');
       if (examView && examView.classList.contains('active')) {
-        if (e.key === 'Escape') this.switchView('dashboard');
+        if (e.key === 'Escape' && this.presentationModeView) {
+          e.preventDefault();
+          this.exitClinicalPresentation();
+        }
+        return;
+      }
+
+      const jaegerView = document.getElementById('view-jaeger');
+      if (jaegerView && jaegerView.classList.contains('active')) {
+        if (e.key === 'Escape' && this.presentationModeView) {
+          e.preventDefault();
+          this.exitClinicalPresentation();
+        }
         return;
       }
 

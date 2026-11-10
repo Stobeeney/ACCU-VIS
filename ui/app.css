@@ -3791,6 +3791,70 @@ html.logged-out #view-login {
   outline-offset: 2px;
 }
 
+/* Focused presentation mode for the Near VA and Jaeger charts. */
+body.clinical-presentation-mode {
+  overflow: hidden;
+}
+
+body.clinical-presentation-mode .app-sidebar,
+body.clinical-presentation-mode .top-clinical-bar {
+  display: none !important;
+}
+
+body.clinical-presentation-mode .app-workspace {
+  width: 100vw;
+  height: 100vh;
+  height: 100dvh;
+  min-width: 0;
+}
+
+body.clinical-presentation-mode .workspace-body {
+  min-height: 0;
+  padding: clamp(12px, 2vw, 28px);
+}
+
+body.clinical-presentation-mode .app-view.active {
+  width: 100%;
+  max-width: none;
+  margin: 0;
+}
+
+body.clinical-presentation-mode #view-exam .snellen-exam-layout,
+body.clinical-presentation-mode #view-jaeger .exam-desktop-grid {
+  min-height: calc(100vh - 112px);
+  min-height: calc(100dvh - 112px);
+  align-items: stretch;
+}
+
+body.clinical-presentation-mode #view-exam .snellen-chart-card,
+body.clinical-presentation-mode #view-jaeger .optotype-stimulus-card {
+  min-width: 0;
+}
+
+body.clinical-presentation-mode #view-jaeger .optotype-stimulus-card {
+  align-items: stretch;
+}
+
+body.clinical-presentation-mode .desktop-view-header {
+  align-items: center;
+  margin-bottom: 14px;
+}
+
+@media (max-width: 900px) {
+  body.clinical-presentation-mode .workspace-body {
+    padding: 12px;
+  }
+
+  body.clinical-presentation-mode #view-exam .snellen-exam-layout,
+  body.clinical-presentation-mode #view-jaeger .exam-desktop-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+
+  body.clinical-presentation-mode .desktop-view-header {
+    align-items: stretch;
+  }
+}
+
 /* Cloud-only rail controls sit inline with the always-visible link selector; they hide as a group */
 .rail-cloud-fields {
   display: contents;

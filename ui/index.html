@@ -895,7 +895,10 @@
               <h1 class="desktop-view-title">Near Visual Acuity Snellen Chart</h1>
               <p class="desktop-view-subtitle" id="exam-patient-name">Patient not selected</p>
             </div>
-            <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+            <div class="header-action-group">
+              <button id="btn-nearva-fullscreen" class="btn-outline-maroon" type="button" aria-pressed="false" onclick="app.toggleClinicalPresentation('exam')">Full Screen</button>
+              <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+            </div>
           </div>
 
           <div class="snellen-exam-layout">
@@ -970,7 +973,10 @@
               <div class="stage-tag-badge">Jaeger's Near Reading Chart &bull; 40cm Standard Fixation</div>
               <h1 class="desktop-view-title">Jaeger's Chart (J1&ndash;J7 Presbyopia Screening)</h1>
             </div>
-            <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+            <div class="header-action-group">
+              <button id="btn-jaeger-fullscreen" class="btn-outline-maroon" type="button" aria-pressed="false" onclick="app.toggleClinicalPresentation('jaeger')">Full Screen</button>
+              <button class="btn-outline-maroon" onclick="app.switchView('products')">&larr; Back to Catalog</button>
+            </div>
           </div>
 
           <div class="exam-desktop-grid">
