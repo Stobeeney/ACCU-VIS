@@ -57,7 +57,7 @@ class AccuVisApp {
       isPreparing: false,
       prepareCancelled: false,
       isApproaching: false,
-      speedCmPerSec: 1.5,
+      speedCmPerSec: 0.5,
       autoStop: true,
       targetStyle: "rose", // rose, laser, contrast, bullseye
       cameraFlipped: false,
