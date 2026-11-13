@@ -2321,8 +2321,51 @@ html.logged-out #view-login {
   cursor: pointer;
 }
 
+.npc-run-mode-group {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px 18px;
+}
+
 .auto-stop-label input {
   accent-color: var(--primary-maroon);
+}
+
+.dot-series-results {
+  margin: 0 0 16px;
+  padding: 14px;
+  border: 1px solid var(--input-border);
+  border-radius: var(--radius-lg);
+  background: var(--card-white);
+}
+
+.dot-series-results h4 {
+  margin: 0 0 10px;
+  color: var(--primary-maroon);
+  font-size: 14px;
+}
+
+.dot-series-table-wrap {
+  overflow-x: auto;
+}
+
+.dot-series-results table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.dot-series-results th,
+.dot-series-results td {
+  padding: 8px;
+  border-bottom: 1px solid var(--input-border);
+  text-align: left;
+}
+
+.dot-series-results p {
+  margin: 10px 0 0;
+  color: var(--text-muted);
+  font-size: 11px;
 }
 
 /* ==========================================================================

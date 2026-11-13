@@ -852,6 +852,17 @@
                   <span>Auto-Stop on Convergence Break</span>
                 </label>
 
+                <div class="npc-run-mode-group" role="radiogroup" aria-label="Number of NPC runs">
+                  <label class="auto-stop-label" title="Perform one approach to the selected endpoint.">
+                    <input type="radio" name="npc-run-count" value="1" id="npc-run-once">
+                    <span>One run</span>
+                  </label>
+                  <label class="auto-stop-label" title="Perform three approaches to the selected endpoint, returning the carriage to 40 cm between runs.">
+                    <input type="radio" name="npc-run-count" value="3" id="npc-run-three" checked>
+                    <span>Automatically repeat NPC 3 times</span>
+                  </label>
+                </div>
+
                 <label class="auto-stop-label">
                   <input type="checkbox" id="chk-rail-hardware" onchange="app.toggleRailHardware(this.checked)">
                   <span>Use Real Hardware (ESP8266 Rail)</span>
@@ -1338,9 +1349,11 @@
         <div style="font-size:10px; color:var(--text-muted); margin-top:6px; text-transform:uppercase; letter-spacing:0.4px;" id="res-dot-trigger"></div>
       </div>
 
+      <div id="res-dot-series-results" class="dot-series-results hidden" aria-live="polite"></div>
+
       <div style="display:flex; justify-content:space-between; gap:10px;">
         <button class="btn-stepper-reset" style="flex:1;" onclick="app.closeDotResultModal(); app.resetRailToHome();">Re-test</button>
-        <button class="btn-maroon-pill" style="flex:2;" onclick="app.saveAndNextPatient()">Save Record &rarr;</button>
+        <button class="btn-maroon-pill" id="btn-save-dot-results" style="flex:2;" onclick="app.saveAndNextPatient()">Save Record &rarr;</button>
       </div>
     </div>
   </div>

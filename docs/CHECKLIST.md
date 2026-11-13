@@ -9,6 +9,7 @@ Last reviewed: 2026-11-08. The calibrated 40–20 cm range is user-confirmed. Fi
 
 - The **camera is stationary** and tracks the eyes. The motor-driven carriage carries the fixation target. The rail UI offers 20, 4 and 2 cm endpoints; the selected endpoint sets the approach target, while firmware permits a software floor of 2 cm. Only 40–20 cm is user-confirmed; physical travel below 20 cm remains unverified. Rail distance must not be used to scale camera geometry.
 - The website always runs a continuous sweep to the selected 20, 4 or 2 cm endpoint. Eye samples are binned using the latest rail telemetry and estimated position; continuous position accuracy still needs physical validation.
+- NPC offers one run or an automatic three-run sequence to the selected endpoint. The carriage returns to the confirmed 40 cm home position between repeated runs. The operator reviews the three outcomes together; saving writes one clinical log per completed run. STOP or an unconfirmed home position ends the sequence without counting an incomplete run.
 - Rail position is **open-loop** (no limit switch yet). 40 cm = parked home. `1 cm = 800 microsteps` (200 steps x 16 microsteps / 4 cm per rev, from the measured ~40 mm per revolution; earlier assumed 8 mm).
 - Speed presets in the UI and firmware: 0.50, 0.75, 2.0 and 2.5 cm/s; firmware ceiling is `RAIL_MAX_SPEED_CM_S = 2.5` (about 2000 steps/s at the calibrated ratio). Speeds above 0.75 cm/s are not physically verified under the phone payload; bench-test before patient use.
 

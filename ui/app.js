@@ -72,6 +72,7 @@ class AccuVisApp {
       // NPC rail approach is one continuous sweep to the selected endpoint.
       slowDwellMs: 2000
     };
+    this.npcSeries = { active: false, total: 3, results: [], advancing: false };
     this.eyeTracker = null;
 
     // Real ESP8266 + A4988 + NEMA17 rail hardware (Access Point mode,
@@ -1772,57 +1773,78 @@ class AccuVisApp {
   }
 
   async saveAndNextPatient() {
-    const cm = Number.isFinite(this.dotState.recordedDistanceCm) ? this.dotState.recordedDistanceCm : parseFloat(this.dotState.railDistanceCm.toFixed(1));
-    const mm = Math.round(cm * 10);
     const isNpa = this.dotState.testMode === 'npa';
     const testType = isNpa ? 'NPA' : 'NPC';
     const testLabel = isNpa ? 'Near Point of Accommodation' : 'Near Point of Convergence';
-    const verdict = this.dotState.lastVerdict || "Break not confirmed";
     const trackerQuality = this.eyeTracker?.trackingResult?.quality;
     const qualityNote = Number.isFinite(trackerQuality) ? ` Latest eye-tracker quality: ${Math.round(trackerQuality * 100)}%.` : " Eye-tracker quality was unavailable.";
-    const logId = this.generateLogId();
+    const patient = this.currentPatient;
+    const runs = this.npcSeries.results.length
+      ? this.npcSeries.results
+      : [{ distanceCm: Number.isFinite(this.dotState.recordedDistanceCm) ? this.dotState.recordedDistanceCm : parseFloat(this.dotState.railDistanceCm.toFixed(1)), state: this.dotState.measurementState || 'manual', verdict: this.dotState.lastVerdict || 'Break not confirmed' }];
+    if (!this.npcSeries.results.length) this.npcSeries.results = runs;
+    const savedAt = new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
 
-    const logPayload = {
-      log_id: logId,
-      mrn: this.currentPatient.id,
-      patient_name: this.currentPatient.name,
-      test_type: testType,
-      eye: this.config.eye,
-      distance_cm: cm,
-      distance_mm: mm,
-      verdict: verdict,
-      symmetry: Number.isFinite(trackerQuality) ? `${Math.round(trackerQuality * 100)}% latest tracking quality` : "Not available",
-      operator_notes: `${testLabel}: ${cm} cm (${mm} mm) target-to-eye distance. Result state: ${this.dotState.measurementState || "manual"}. ${this.dotState.measurementState === "no_break" ? `No break was detected through ${cm} cm; this value is the tested range limit, not a break point.` : this.dotState.measurementState === "unreliable" ? "No reliable break distance was confirmed." : this.dotState.measurementState === "break" ? "The eye tracker detected a convergence break while the patient followed the moving fixation target." : "The rail was stopped manually; a break was not confirmed."}${qualityNote}`
-    };
+    for (let index = 0; index < runs.length; index += 1) {
+      const run = runs[index];
+      if (run.saved) continue;
+      const cm = Number(run.distanceCm.toFixed(1));
+      const mm = Math.round(cm * 10);
+      const state = run.state || 'manual';
+      const verdict = run.verdict || 'Break not confirmed';
+      run.logId ||= this.generateLogId();
+      const runNote = runs.length > 1 ? ` Automatic NPC trial ${index + 1} of ${this.npcSeries.total}.` : '';
+      const stateNote = state === 'no_break'
+        ? `No break was detected through ${cm} cm; this value is the tested range limit, not a break point.`
+        : state === 'unreliable'
+          ? 'No reliable break distance was confirmed.'
+          : state === 'break'
+            ? 'The eye tracker detected a convergence break while the patient followed the moving fixation target.'
+            : 'The rail was stopped manually; a break was not confirmed.';
+      const logPayload = {
+        log_id: run.logId,
+        mrn: patient.id,
+        patient_name: patient.name,
+        test_type: testType,
+        eye: this.config.eye,
+        distance_cm: cm,
+        distance_mm: mm,
+        verdict,
+        symmetry: Number.isFinite(trackerQuality) ? `${Math.round(trackerQuality * 100)}% latest tracking quality` : 'Not available',
+        operator_notes: `${testLabel}: ${cm} cm (${mm} mm) target-to-eye distance. Result state: ${state}.${runNote} ${stateNote}${qualityNote}`
+      };
 
-    // Save to SQLite & JSON via server API
-    try {
-      await fetch('/api/logs', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(logPayload)
+      try {
+        const response = await fetch('/api/logs', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(logPayload)
+        });
+        if (!response.ok) throw new Error(`Database returned HTTP ${response.status}`);
+      } catch (error) {
+        console.warn('Could not save NPC result:', error);
+        this.showNotification('Could not save all results', `Trial ${index + 1} was not confirmed saved. Check the database connection and retry; already saved trials will not be resubmitted.`);
+        return;
+      }
+
+      run.saved = true;
+      this.records.unshift({
+        id: run.logId,
+        patientId: patient.id,
+        patientName: patient.name,
+        date: savedAt,
+        eye: this.config.eye,
+        distance: state === 'no_break' ? `No break by ${cm} cm` : state === 'unreliable' ? `Unreliable; tested to ${cm} cm` : state === 'manual' ? `Stopped at ${cm} cm; break unconfirmed` : `${cm} cm`,
+        acuity: state === 'no_break' ? `${testType}: no break by ${cm} cm` : state === 'unreliable' ? `${testType}: no reliable break reading` : state === 'manual' ? `${testType}: manually stopped` : `${testType}: break at ${cm} cm`,
+        accuracy: state,
+        fixation: verdict
       });
-    } catch(e) {
-      console.warn("Backend API offline, saving to localStorage:", e);
+      this.saveRecords();
     }
-
-    // Mirror to local memory records
-    this.records.unshift({
-      id: logId,
-      patientId: this.currentPatient.id,
-      patientName: this.currentPatient.name,
-      date: new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' }),
-      eye: this.config.eye,
-      distance: this.dotState.measurementState === "no_break" ? `No break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? `Unreliable; tested to ${cm} cm` : this.dotState.measurementState === "manual" ? `Stopped at ${cm} cm; break unconfirmed` : `${cm} cm`,
-      acuity: this.dotState.measurementState === "no_break" ? `${testType}: no break by ${cm} cm` : this.dotState.measurementState === "unreliable" ? `${testType}: no reliable break reading` : this.dotState.measurementState === "manual" ? `${testType}: manually stopped` : `${testType}: break at ${cm} cm`,
-      accuracy: this.dotState.measurementState || "manual",
-      fixation: verdict
-    });
-    this.saveRecords();
-
     // Close modal & reset rail
     this.closeDotResultModal();
     this.resetRailToHome();
+    this.npcSeries.results = [];
 
     // Reset intake form for next patient
     this.resetIntakeForm();
@@ -1830,7 +1852,7 @@ class AccuVisApp {
 
     // Return to Step 1: Patient Intake
     this.switchView('intake');
-    this.showNotification("Patient Session Saved", `${testType} result (${cm} cm) logged for ${this.currentPatient.name} in database. Ready for next patient!`);
+    this.showNotification('Patient Session Saved', `${runs.length} ${testType} result${runs.length === 1 ? '' : 's'} logged for ${patient.name} in the database. Ready for next patient!`);
   }
 
   updateDashboardMetrics() {
@@ -1879,11 +1901,13 @@ class AccuVisApp {
   }
 
   toggleStepperApproach() {
+    if (this.npcSeries.advancing) return;
     if (this.dotState.isPreparing) {
       this.dotState.prepareCancelled = true;
       if (this.railHardware.enabled) this.railApiCall("/stop");
       const statusText = document.getElementById("dot-motor-status-text");
       if (statusText) statusText.textContent = "Home positioning stopped; check STOP status before retrying.";
+      this.abortNpcSeries('The operator stopped the three-run test while the rail was preparing the next run.');
       return;
     }
     if (this.dotState.isApproaching) {
@@ -2528,6 +2552,15 @@ class AccuVisApp {
       endMeasuring();
       rh.faceHold = false;
       ds.isApproaching = false;
+      if (this.npcSeries.active) {
+        const completedRuns = this.npcSeries.results.length;
+        this.npcSeries.active = false;
+        this.npcSeries.advancing = false;
+        if (completedRuns) {
+          this.stopAndLockMeasurement(`Three-run test paused after ${completedRuns} completed run${completedRuns === 1 ? '' : 's'}: ${message}`, this.dotState.railDistanceCm, { state: 'unreliable', reason: message }, false);
+          return;
+        }
+      }
       const text = document.getElementById("dot-motor-status-text");
       if (text) text.textContent = message;
       const pill = document.getElementById("dot-motor-status-pill");
@@ -2588,7 +2621,8 @@ class AccuVisApp {
     }
 
     const pillText = document.getElementById("dot-motor-status-text");
-    if (pillText) pillText.textContent = `Continuous sweep to ${target.toFixed(0)} cm (${fastSpeed.toFixed(2)} cm/s)...`;
+    const runLabel = this.npcSeries.active ? `NPC run ${this.npcSeries.results.length + 1} of ${this.npcSeries.total}: ` : '';
+    if (pillText) pillText.textContent = `${runLabel}continuous sweep to ${target.toFixed(0)} cm (${fastSpeed.toFixed(2)} cm/s)...`;
 
     let sawProfile = false;
     let misses = 0;
@@ -2702,6 +2736,7 @@ class AccuVisApp {
             : "Rail is not calibrated -- calibrate at the 40 cm home mark";
       const statusText = document.getElementById("dot-motor-status-text");
       if (statusText) statusText.textContent = message;
+      this.abortNpcSeries(message);
       return;
     }
     const hwMinCm = hwStatus && typeof hwStatus.min_cm === "number" ? hwStatus.min_cm : DOT_RAIL_MIN_CM;
@@ -2710,6 +2745,7 @@ class AccuVisApp {
       ds.isApproaching = false;
       const statusText = document.getElementById("dot-motor-status-text");
       if (statusText) statusText.textContent = `Selected ${targetCm.toFixed(0)} cm endpoint is below the ESP8266's configured ${hwMinCm.toFixed(0)} cm minimum. No motion command was sent.`;
+      this.abortNpcSeries(`Selected ${targetCm.toFixed(0)} cm is below the ESP8266 minimum of ${hwMinCm.toFixed(0)} cm.`);
       return;
     }
     const detectorStartCm = Math.min(DOT_RAIL_HOME_CM, 30.0);
@@ -2744,7 +2780,8 @@ class AccuVisApp {
       const pillText = document.getElementById("dot-motor-status-text");
       if (pillText) {
         const capped = moveResp.speed_cm_s + 0.005 < ds.speedCmPerSec ? ` (capped from ${ds.speedCmPerSec})` : "";
-        pillText.textContent = `Continuous sweep to ${targetCm.toFixed(0)} cm (${moveResp.speed_cm_s.toFixed(2)} cm/s${capped})...`;
+        const runLabel = this.npcSeries.active ? `NPC run ${this.npcSeries.results.length + 1} of ${this.npcSeries.total}: ` : '';
+        pillText.textContent = `${runLabel}continuous sweep to ${targetCm.toFixed(0)} cm (${moveResp.speed_cm_s.toFixed(2)} cm/s${capped})...`;
       }
     }
     if (!moveResp || !moveResp.ok) {
@@ -2757,6 +2794,7 @@ class AccuVisApp {
       }
       const pill = document.getElementById("dot-motor-status-pill");
       if (pill) pill.className = "dot-status-pill idle";
+      this.abortNpcSeries(moveResp?.error || 'The rail did not confirm the movement command.');
       return;
     }
 
@@ -2804,7 +2842,117 @@ class AccuVisApp {
   }
 
   startStepperApproach() {
+    if (this.npcSeries.advancing) return;
+    if (!this.npcSeries.active) {
+      const selectedRunCount = document.querySelector('input[name="npc-run-count"]:checked')?.value;
+      const repeatEnabled = selectedRunCount === '3' && this.dotState.testMode === 'npc';
+      this.npcSeries.results = [];
+      this.npcSeries.active = !!repeatEnabled;
+      this.npcSeries.advancing = false;
+    }
     return this.prepareAndStartStepperApproach();
+  }
+
+  async advanceNpcSeries(stopRequest = Promise.resolve({ ok: true }), stopWasRequested = false) {
+    const series = this.npcSeries;
+    if (!series.active || series.advancing) return;
+    series.advancing = true;
+    const nextRun = series.results.length + 1;
+    const statusText = document.getElementById('dot-motor-status-text');
+    const pill = document.getElementById('dot-motor-status-pill');
+    if (pill) pill.className = 'dot-status-pill idle';
+    if (statusText) statusText.textContent = `Run ${nextRun - 1} of ${series.total} complete. Returning the rail to 40 cm...`;
+    const btnText = document.getElementById('btn-start-text');
+    if (btnText) btnText.textContent = `Preparing run ${nextRun} of ${series.total}...`;
+
+    let homeConfirmed = !this.railHardware.enabled;
+    if (this.railHardware.enabled) {
+      const stopResult = await stopRequest;
+      let status = null;
+      if (stopResult?.ok) {
+        const stoppedAt = Date.now();
+        while (Date.now() - stoppedAt < 45000) {
+          status = await this.railApiCall('/status');
+          const stopAcknowledged = !stopWasRequested || this.railHardware.transport !== 'cloud' || status?.stop_latched;
+          if (status?.ok && !status.moving && status.profile_state === 'IDLE' && stopAcknowledged) break;
+          if (!status?.ok) break;
+          await new Promise(resolve => setTimeout(resolve, 700));
+        }
+      }
+      let readyToHome = !!(status?.ok && !status.moving && status.profile_state === 'IDLE');
+      if (readyToHome && stopWasRequested && this.railHardware.transport === 'cloud' && status.stop_latched) {
+        const cleared = await this.railCloud().clearStop();
+        readyToHome = !!cleared?.ok;
+        if (readyToHome) {
+          const clearStartedAt = Date.now();
+          readyToHome = false;
+          while (Date.now() - clearStartedAt < 20000) {
+            status = await this.railApiCall('/status');
+            if (status?.ok && !status.moving && status.profile_state === 'IDLE' && !status.stop_latched) {
+              readyToHome = true;
+              break;
+            }
+            if (!status?.ok) break;
+            await new Promise(resolve => setTimeout(resolve, 700));
+          }
+        }
+      }
+      if (readyToHome && Math.abs(status.distance_cm - DOT_RAIL_HOME_CM) <= 0.3) {
+        this.dotState.railDistanceCm = status.distance_cm;
+        homeConfirmed = true;
+      }
+      const home = readyToHome && !homeConfirmed ? await this.railApiCall('/home') : null;
+      if (home?.ok) {
+        const startedAt = Date.now();
+        while (Date.now() - startedAt < 60000) {
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          const status = await this.railApiCall('/status');
+          if (status?.ok && !status.moving && !status.stop_latched &&
+              Math.abs(status.distance_cm - DOT_RAIL_HOME_CM) <= 0.3) {
+            this.dotState.railDistanceCm = status.distance_cm;
+            homeConfirmed = true;
+            break;
+          }
+          if (!status?.ok) break;
+        }
+      }
+    } else {
+      this.dotState.railDistanceCm = DOT_RAIL_HOME_CM;
+      this.updateDotHUD();
+      await new Promise(resolve => setTimeout(resolve, 700));
+    }
+
+    if (!homeConfirmed) {
+      series.active = false;
+      series.advancing = false;
+      this.stopAndLockMeasurement(
+        `Three-run test paused after ${series.results.length} of ${series.total} runs because home could not be confirmed`,
+        this.dotState.recordedDistanceCm,
+        { state: this.dotState.measurementState || 'unreliable', reason: 'The carriage did not confirm its 40 cm home position; no further run was started.' },
+        false
+      );
+      return;
+    }
+
+    if (!series.active) return;
+    series.advancing = false;
+    this.dotState.convergenceLocked = false;
+    this.dotState.recordedDistanceCm = null;
+    if (statusText) statusText.textContent = `Starting NPC run ${nextRun} of ${series.total}...`;
+    await this.prepareAndStartStepperApproach();
+  }
+
+  abortNpcSeries(reason) {
+    const series = this.npcSeries;
+    if (!series.active) return;
+    series.active = false;
+    series.advancing = false;
+    if (series.results.length) {
+      const lastRun = series.results[series.results.length - 1];
+      this.stopAndLockMeasurement(reason, lastRun.distanceCm, { state: 'unreliable', reason }, false);
+    } else {
+      this.showNotification('Three-run test stopped', reason);
+    }
   }
 
   async prepareAndStartStepperApproach() {
@@ -2819,11 +2967,13 @@ class AccuVisApp {
         const initial = await this.railApiCall("/status");
         if (initial && initial.ok && initial.armed && initial.calibrated) {
           if (initial.moving) {
+            this.abortNpcSeries("The rail was already moving; the remaining NPC runs were cancelled.");
             this.showNotification("Rail is moving", "Wait for the rail to stop before starting a new target approach.");
             return;
           }
           const deviceMinCm = typeof initial.min_cm === "number" ? initial.min_cm : DOT_RAIL_MIN_CM;
           if (ds.targetLimitCm < deviceMinCm) {
+            this.abortNpcSeries(`The selected ${ds.targetLimitCm.toFixed(0)} cm endpoint is below the rail's ${deviceMinCm.toFixed(0)} cm minimum.`);
             this.showNotification(
               "Endpoint not enabled by firmware",
               `The selected ${ds.targetLimitCm.toFixed(0)} cm endpoint is below the ESP8266's reported ${deviceMinCm.toFixed(0)} cm minimum. No movement command was sent.`
@@ -2836,6 +2986,7 @@ class AccuVisApp {
             const home = await this.railApiCall("/home");
             if (ds.prepareCancelled) return;
             if (!home || !home.ok) {
+              this.abortNpcSeries("The rail did not accept the return-home command; no more NPC runs were started.");
               this.showNotification("Could not home the rail", "Check the rail connection and calibration, then try again.");
               return;
             }
@@ -2853,6 +3004,7 @@ class AccuVisApp {
             }
             if (ds.prepareCancelled) return;
             if (!homed) {
+              this.abortNpcSeries("The rail did not confirm its 40 cm home position; no more NPC runs were started.");
               this.showNotification("Home position not confirmed", "The rail did not report the calibrated 40 cm position. Do not start the approach until its position is confirmed.");
               return;
             }
@@ -2874,7 +3026,9 @@ class AccuVisApp {
     const pill = document.getElementById('dot-motor-status-pill');
     const pillText = document.getElementById('dot-motor-status-text');
     if (pill) pill.className = 'dot-status-pill running';
-    if (pillText) pillText.textContent = `Advancing Rail (${this.dotState.speedCmPerSec} cm/s)...`;
+    if (pillText) pillText.textContent = this.npcSeries.active
+      ? `Preparing NPC run ${this.npcSeries.results.length + 1} of ${this.npcSeries.total}...`
+      : `Advancing Rail (${this.dotState.speedCmPerSec} cm/s)...`;
 
     // Start button text
     const btnText = document.getElementById('btn-start-text');
@@ -2926,6 +3080,12 @@ class AccuVisApp {
   }
 
   pauseStepperApproach() {
+    if (this.npcSeries.active) {
+      this.npcSeries.active = false;
+      this.npcSeries.advancing = false;
+      this.stopAndLockMeasurement('Three-run NPC test stopped by the operator');
+      return;
+    }
     this.dotState.isApproaching = false;
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
@@ -2955,6 +3115,7 @@ class AccuVisApp {
       measurementOutcome = measurementOutcome || this.eyeTracker.endBreakDetection();
       if (this.eyeTracker.breakActive) this.eyeTracker.endBreakDetection();
     }
+    if (/manual stop|stopped by the operator/i.test(triggerReason)) measurementOutcome = null;
     this.dotState.convergenceLocked = true;
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
@@ -2964,9 +3125,9 @@ class AccuVisApp {
       clearTimeout(this.railHardware.pollTimer);
       this.railHardware.pollTimer = null;
     }
-    if (stopMotor && this.railHardware.enabled) {
-      this.railApiCall('/stop');
-    }
+    const stopRequest = stopMotor && this.railHardware.enabled
+      ? this.railApiCall('/stop')
+      : Promise.resolve({ ok: true });
 
     const recordedCm = parseFloat((typeof recordedOverrideCm === "number" ? recordedOverrideCm : this.dotState.railDistanceCm).toFixed(1));
     const recordedMm = Math.round(recordedCm * 10);
@@ -2974,6 +3135,28 @@ class AccuVisApp {
     const measurementState = measurementOutcome?.state || (typeof recordedOverrideCm === "number" ? "break" : "manual");
     const testedLimitCm = measurementOutcome?.testedLimitCm ?? (measurementState === "no_break" || measurementState === "unreliable" ? recordedCm : null);
     this.dotState.measurementState = measurementState;
+
+    const series = this.npcSeries;
+    const completedSweep = /^(Convergence break detected|No break detected down to|No reliable break reading:|Simulation reached)/.test(triggerReason);
+    if (series.active && this.dotState.testMode === 'npc' && completedSweep && measurementOutcome?.state) {
+      const runVerdict = measurementState === 'break' ? 'Convergence break detected'
+        : measurementState === 'no_break' ? `No break detected through ${testedLimitCm ?? recordedCm} cm`
+          : measurementState === 'unreliable' ? 'No reliable break reading'
+            : `Manual stop at ${recordedCm} cm; break not confirmed`;
+      series.results.push({ distanceCm: recordedCm, state: measurementState, verdict: runVerdict });
+      this.dotState.lastVerdict = runVerdict;
+      if (series.results.length < series.total) {
+        void this.advanceNpcSeries(stopRequest, stopMotor && this.railHardware.enabled);
+        return;
+      }
+      series.active = false;
+      series.advancing = false;
+    } else if (series.active) {
+      // An operator STOP or a rail interruption ends the series; never turn an
+      // incomplete approach into one of the requested three measurements.
+      series.active = false;
+      series.advancing = false;
+    }
 
     // Pleasant double chime sound for lock
     this.playTone(523.25, 'triangle', 0.15, 0);   // C5
@@ -3032,6 +3215,30 @@ class AccuVisApp {
     }
     this.dotState.lastVerdict = verdict;
 
+    const seriesResults = document.getElementById('res-dot-series-results');
+    if (seriesResults) {
+      if (series.results.length) {
+        const complete = series.results.length === series.total;
+        const rows = series.results.map((run, index) => `
+          <tr><td>Run ${index + 1}</td><td>${run.distanceCm.toFixed(1)} cm</td><td>${run.verdict}</td></tr>
+        `).join('');
+        seriesResults.innerHTML = `
+          <h4>${complete ? 'Three-run results' : `Results completed before stop (${series.results.length} of ${series.total})`}</h4>
+          <div class="dot-series-table-wrap"><table><thead><tr><th>Run</th><th>Distance</th><th>Outcome</th></tr></thead><tbody>${rows}</tbody></table></div>
+          <p>${complete ? 'Each run will be saved as its own patient record.' : 'Only completed runs will be saved. The interrupted run is shown above as unconfirmed.'}</p>
+        `;
+        seriesResults.classList.remove('hidden');
+      } else {
+        seriesResults.innerHTML = '';
+        seriesResults.classList.add('hidden');
+      }
+    }
+    const saveButton = document.getElementById('btn-save-dot-results');
+    if (saveButton) {
+      const resultCount = series.results.length || 1;
+      saveButton.textContent = resultCount > 1 ? `Save ${resultCount} Results →` : 'Save Record →';
+    }
+
     const triggerEl = document.getElementById('res-dot-trigger');
     if (triggerEl) triggerEl.textContent = triggerReason;
 
@@ -3041,6 +3248,12 @@ class AccuVisApp {
   }
 
   resetRailToHome() {
+    if (this.npcSeries.active || this.npcSeries.advancing) {
+      this.showNotification('Three-run test in progress', 'Use Stop & Lock NPC to end the sequence before resetting the rail.');
+      return;
+    }
+    this.npcSeries.active = false;
+    this.npcSeries.advancing = false;
     this.dotState.isApproaching = false;
     if (this.dotState.animationFrameId) {
       cancelAnimationFrame(this.dotState.animationFrameId);
@@ -3117,10 +3330,10 @@ class AccuVisApp {
   setTargetLimit(value) {
     const targetLimitCm = Number(value);
     if (!DOT_RAIL_LIMIT_OPTIONS_CM.includes(targetLimitCm)) return;
-    if (this.dotState.isApproaching || this.dotState.isPreparing) {
+    if (this.dotState.isApproaching || this.dotState.isPreparing || this.npcSeries.active || this.npcSeries.advancing) {
       const select = document.getElementById("target-limit-select");
       if (select) select.value = String(this.dotState.targetLimitCm);
-      this.showNotification("Approach in progress", "Stop the current approach before changing its endpoint.");
+      this.showNotification("NPC series in progress", "Finish or stop the current three-run test before changing its endpoint.");
       return;
     }
     this.dotState.targetLimitCm = targetLimitCm;
