@@ -2588,7 +2588,7 @@ class AccuVisApp {
     // at the start distance. Without a steady reading the approach still runs, but only manually.
     const pillNote = document.getElementById("dot-motor-status-text");
     if (ds.testMode === "npc" && tracker && tracker.mode === "landmarks" &&
-        tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: detectorStartCm, endCm: target, continuous: true })) {
+        tracker.beginBreakDetection({ dwellMs: ds.slowDwellMs, startCm: detectorStartCm, endCm: target, continuous: true, minSamplesPerBin: 3 })) {
       measuring = true;
       tracker.setRailState({ distanceCm: st.distance_cm, moving: false });
       const t0 = performance.now();
@@ -2757,7 +2757,8 @@ class AccuVisApp {
       dwellMs: ds.slowDwellMs,
       startCm: detectorStartCm,
       endCm: targetCm,
-      continuous: true
+      continuous: true,
+      minSamplesPerBin: 3
     })) {
       tracker.setRailState({ distanceCm: hwStatus.distance_cm, moving: false });
       const baselineStart = performance.now();

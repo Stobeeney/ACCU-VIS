@@ -142,10 +142,10 @@ class AccuVisEyeTracker {
   }
 
   // ---- convergence-break detection (see convergence_break.js) ----------------------------------
-  beginBreakDetection({ dwellMs, startCm, endCm, continuous = false } = {}) {
+  beginBreakDetection({ dwellMs, startCm, endCm, continuous = false, minSamplesPerBin } = {}) {
     if (!this.breakDetector) return false;
     this.breakDetector.reset();
-    this.breakDetector.configure({ dwellMs, startCm, endCm, continuous });
+    this.breakDetector.configure({ dwellMs, startCm, endCm, continuous, minSamplesPerBin });
     this.breakActive = true;
     this.trackingResult.breakResult = null;
     return true;
@@ -389,7 +389,7 @@ class AccuVisEyeTracker {
     r.vergenceRaw = raw;
     if (this.breakDetector && this.breakActive) {
       this.breakDetector.addFrame({ t: nowMs, raw, usable, quality });
-      if (nowMs - this.lastBreakEval > 250) {          // 4 Hz is plenty and keeps the frame loop light
+      if (nowMs - this.lastBreakEval > 100) {          // evaluate at 10 Hz so confirmed breaks trigger STOP sooner
         this.lastBreakEval = nowMs;
         r.breakResult = this.breakDetector.evaluate(false);
       }

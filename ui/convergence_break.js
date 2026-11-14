@@ -84,11 +84,14 @@
     }
 
     /** dwellMs = the profile's pause at every step; startCm / endCm = expected range (for coverage) */
-    configure({ dwellMs, startCm, endCm, continuous }) {
+    configure({ dwellMs, startCm, endCm, continuous, minSamplesPerBin }) {
       if (dwellMs) this.rail.dwellMs = dwellMs;
       if (startCm !== undefined) this.startCm = startCm;
       if (endCm !== undefined) this.lowestCm = endCm;
       if (continuous !== undefined) this.o.continuous = !!continuous;
+      if (Number.isInteger(minSamplesPerBin) && minSamplesPerBin >= 3) {
+        this.o.minSamplesPerBin = minSamplesPerBin;
+      }
     }
 
     /** Call with every rail status the page receives. t in ms. */
@@ -176,8 +179,11 @@
         return this._done(final ? 'unreliable' : 'collecting', { reason: 'No usable readings during the approach.' });
       }
 
-      // threshold from this session's own noise (median within-step spread)
-      const sigma = median(s.map((p) => p.sigma));
+      // Use both the starting baseline noise and the per-position spread. The baseline
+      // floor prevents small continuous-sweep bins from understating tracker noise.
+      const binSigma = median(s.map((p) => p.sigma));
+      const baselineSigma = mad(this.baselineRaw);
+      const sigma = Math.max(binSigma, Number.isFinite(baselineSigma) ? baselineSigma : 0);
       const threshold = Math.max(o.minDropUnits, o.noiseK * sigma);
       if (threshold > o.maxThresholdUnits) {
         return this._done(final ? 'unreliable' : 'collecting', { reason: 'Eye readings are too noisy to tell a break from noise.', sigma, threshold });
